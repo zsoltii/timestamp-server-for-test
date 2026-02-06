@@ -1,0 +1,22 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: timestamp-server
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    com.digital.signature: DEBUG
