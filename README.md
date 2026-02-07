@@ -1,3 +1,5 @@
+> **Attention:** This project is specifically for testing purposes, for example, for running automated tests. It is not recommended for use in a production environment.
+
 # Timestamp Server for Digital Signatures
 
 A high-performance timestamp server built with Spring Boot, Maven, and GraalVM Native Image support for digital signature applications.
@@ -52,12 +54,12 @@ java -jar target/timestamp-server-1.0-SNAPSHOT.jar
 
 ## API Endpoints
 
-| Endpoint | Method | Description | Response Format |
-|----------|--------|-------------|----------------|
-| `/api/timestamp/rfc3161` | GET | RFC 3161 timestamp (ASN.1) | Base64 encoded bytes |
-| `/api/timestamp/simple` | GET | Simple ISO 8601 timestamp | String |
-| `/api/timestamp/unix` | GET | Unix epoch timestamp | Long |
-| `/api/timestamp/health` | GET | Health check | String |
+| Endpoint | Method | Description | Content-Type | Response Format |
+|----------|--------|-------------|----------------|----------------|
+| `/api/timestamp` | POST | RFC 3161 timestamp | `application/timestamp-query` | `application/timestamp-reply` |
+| `/api/timestamp/simple` | GET | Simple ISO 8601 timestamp | - | String |
+| `/api/timestamp/unix` | GET | Unix epoch timestamp | - | Long |
+| `/api/timestamp/health` | GET | Health check | - | String |
 
 ## Docker Support
 
@@ -117,9 +119,10 @@ The application is configured for GraalVM Native Image with:
 
 1. Fork the repository
 2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Submit a pull request
+3. Before committing, please format your code using the AOSP style with `./mvnw spotless:apply`.
+4. Commit your changes
+5. Push to the branch
+6. Submit a pull request
 
 ## License
 
@@ -131,4 +134,4 @@ For issues and questions, please open an issue in the GitHub repository.
 
 ---
 
-**Built with Spring Boot 3.x, GraalVM 25, and Maven**
+**Built with Spring Boot 3.5.6, GraalVM 25, and Maven**

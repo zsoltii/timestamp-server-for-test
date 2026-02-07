@@ -1,6 +1,17 @@
 package com.digital.signature.service;
 
 import jakarta.annotation.PostConstruct;
+import java.math.BigInteger;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.nist.NISTObjectIdentifiers;
 import org.bouncycastle.asn1.oiw.OIWObjectIdentifiers;
@@ -27,18 +38,6 @@ import org.bouncycastle.tsp.TimeStampResponseGenerator;
 import org.bouncycastle.tsp.TimeStampTokenGenerator;
 import org.springframework.stereotype.Service;
 
-import java.math.BigInteger;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
-
 @Service
 public class TimestampService {
 
@@ -53,47 +52,52 @@ public class TimestampService {
             KeyPair keyPair = keyPairGenerator.generateKeyPair();
 
             // 2. Önaláírt tanúsítvány generálás
-            X500Name subject = new X500Name("CN=Test Timestamp Authority, O=Digital Signature, C=HU");
+            X500Name subject =
+                    new X500Name("CN=Test Timestamp Authority, O=Digital Signature, C=HU");
             BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
             Date notBefore = Date.from(Instant.now());
             Date notAfter = Date.from(Instant.now().plus(365, ChronoUnit.DAYS));
 
-            JcaX509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(
-                    subject,
-                    serial,
-                    notBefore,
-                    notAfter,
-                    subject,
-                    keyPair.getPublic()
-            );
+            JcaX509v3CertificateBuilder certBuilder =
+                    new JcaX509v3CertificateBuilder(
+                            subject, serial, notBefore, notAfter, subject, keyPair.getPublic());
 
             // Kiterjesztések hozzáadása a szabványos timestampinghez
-            certBuilder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false)); // Nem CA
-            certBuilder.addExtension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature | KeyUsage.nonRepudiation));
-            certBuilder.addExtension(Extension.extendedKeyUsage, true, new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
+            certBuilder.addExtension(
+                    Extension.basicConstraints, true, new BasicConstraints(false)); // Nem CA
+            certBuilder.addExtension(
+                    Extension.keyUsage,
+                    true,
+                    new KeyUsage(KeyUsage.digitalSignature | KeyUsage.nonRepudiation));
+            certBuilder.addExtension(
+                    Extension.extendedKeyUsage,
+                    true,
+                    new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
 
-            ContentSigner contentSigner = new JcaContentSignerBuilder("SHA256WithRSA").build(keyPair.getPrivate());
+            ContentSigner contentSigner =
+                    new JcaContentSignerBuilder("SHA256WithRSA").build(keyPair.getPrivate());
             X509CertificateHolder certificateHolder = certBuilder.build(contentSigner);
 
             // 3. TimeStampResponseGenerator inicializálás
             // Teszt policy OID
             ASN1ObjectIdentifier policyId = new ASN1ObjectIdentifier("1.3.6.1.4.1.13762.3");
-            
-            DigestCalculatorProvider digestCalculatorProvider = new JcaDigestCalculatorProviderBuilder().build();
-            
+
+            DigestCalculatorProvider digestCalculatorProvider =
+                    new JcaDigestCalculatorProviderBuilder().build();
+
             // SignerInfoGenerator létrehozása
-            SignerInfoGenerator signerInfoGenerator = new JcaSignerInfoGeneratorBuilder(digestCalculatorProvider)
-                    .build(contentSigner, certificateHolder);
+            SignerInfoGenerator signerInfoGenerator =
+                    new JcaSignerInfoGeneratorBuilder(digestCalculatorProvider)
+                            .build(contentSigner, certificateHolder);
 
             // DigestCalculator létrehozása (SHA-1 a timestamp tokenhez)
-            DigestCalculator digestCalculator = digestCalculatorProvider.get(new AlgorithmIdentifier(OIWObjectIdentifiers.idSHA1));
+            DigestCalculator digestCalculator =
+                    digestCalculatorProvider.get(
+                            new AlgorithmIdentifier(OIWObjectIdentifiers.idSHA1));
 
-            TimeStampTokenGenerator tokenGenerator = new TimeStampTokenGenerator(
-                    signerInfoGenerator,
-                    digestCalculator,
-                    policyId
-            );
-            
+            TimeStampTokenGenerator tokenGenerator =
+                    new TimeStampTokenGenerator(signerInfoGenerator, digestCalculator, policyId);
+
             // Tanúsítványok hozzáadása Store-ként
             List<X509CertificateHolder> certs = new ArrayList<>();
             certs.add(certificateHolder);
@@ -106,31 +110,34 @@ public class TimestampService {
             acceptedAlgorithms.add(OIWObjectIdentifiers.idSHA1);
 
             // A konstruktor Set<String>-et vár az algoritmus OID-khoz
-            Set<String> acceptedAlgorithmOids = acceptedAlgorithms.stream()
-                    .map(ASN1ObjectIdentifier::getId)
-                    .collect(Collectors.toSet());
+            Set<String> acceptedAlgorithmOids =
+                    acceptedAlgorithms.stream()
+                            .map(ASN1ObjectIdentifier::getId)
+                            .collect(Collectors.toSet());
 
-            timeStampResponseGenerator = new TimeStampResponseGenerator(tokenGenerator, acceptedAlgorithmOids);
+            // Elfogadott policy-k definiálása
+            Set<String> acceptedPolicies = new HashSet<>();
+            acceptedPolicies.add(policyId.getId());
+
+            timeStampResponseGenerator =
+                    new TimeStampResponseGenerator(
+                            tokenGenerator, acceptedAlgorithmOids, acceptedPolicies);
 
         } catch (Exception e) {
             throw new IllegalStateException("Failed to initialize TimestampService", e);
         }
     }
 
-    /**
-     * Generate RFC 3161 timestamp response
-     */
+    /** Generate RFC 3161 timestamp response */
     public byte[] generateTimestampResponse(byte[] requestBytes) {
         try {
             TimeStampRequest request = new TimeStampRequest(requestBytes);
 
             // Itt lehetne validálni a request-et (pl. algoritmus, policy)
 
-            TimeStampResponse response = timeStampResponseGenerator.generate(
-                    request,
-                    BigInteger.valueOf(System.currentTimeMillis()),
-                    new Date()
-            );
+            TimeStampResponse response =
+                    timeStampResponseGenerator.generate(
+                            request, BigInteger.valueOf(System.currentTimeMillis()), new Date());
 
             return response.getEncoded();
         } catch (Exception e) {
@@ -138,16 +145,12 @@ public class TimestampService {
         }
     }
 
-    /**
-     * Generate simple ISO 8601 formatted timestamp
-     */
+    /** Generate simple ISO 8601 formatted timestamp */
     public String generateSimpleTimestamp() {
         return Instant.now().toString();
     }
 
-    /**
-     * Generate Unix timestamp (seconds since epoch)
-     */
+    /** Generate Unix timestamp (seconds since epoch) */
     public long generateUnixTimestamp() {
         return Instant.now().getEpochSecond();
     }

@@ -12,10 +12,8 @@
 - make always junit test with jupiter api
 - use for test assertations assertj
 - if it is possible, make integration test too.
+- always run the all test to check, after a change everything work.
 
 # Maven
 - For maven use maven wrapper
 
-# native image
-
-- if it is possible, make native image

@@ -1,5 +1,9 @@
 package com.digital.signature.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
 import com.digital.signature.service.TimestampService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -8,17 +12,11 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.http.ResponseEntity;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-
 class TimestampControllerTest {
 
-    @Mock
-    private TimestampService timestampService;
+    @Mock private TimestampService timestampService;
 
-    @InjectMocks
-    private TimestampController timestampController;
+    @InjectMocks private TimestampController timestampController;
 
     @BeforeEach
     void setUp() {
@@ -30,7 +28,8 @@ class TimestampControllerTest {
         // Arrange
         byte[] requestBytes = "mock-request".getBytes();
         byte[] responseBytes = "mock-response".getBytes();
-        when(timestampService.generateTimestampResponse(any(byte[].class))).thenReturn(responseBytes);
+        when(timestampService.generateTimestampResponse(any(byte[].class)))
+                .thenReturn(responseBytes);
 
         // Act
         ResponseEntity<byte[]> response = timestampController.handleTimestampQuery(requestBytes);
