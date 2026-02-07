@@ -1,8 +1,10 @@
-> **Attention:** This project is specifically for testing purposes, for example, for running automated tests. It is not recommended for use in a production environment.
+> **Attention:** This project is specifically for testing purposes, for example, for running automated tests. It is not
+> recommended for use in a production environment.
 
 # Timestamp Server for Digital Signatures
 
-A high-performance timestamp server built with Spring Boot, Maven, and GraalVM Native Image support for digital signature applications.
+A high-performance timestamp server built with Spring Boot, Maven, and GraalVM Native Image support for digital
+signature applications.
 
 ## Features
 
@@ -35,7 +37,6 @@ export PATH=$JAVA_HOME/bin:$PATH
 ```bash
 # Regular build (JVM)
 ./mvnw clean install
-
 # Native build (GraalVM)
 ./mvnw clean package -Pnative
 ```
@@ -43,32 +44,45 @@ export PATH=$JAVA_HOME/bin:$PATH
 ### 3. Run the Server
 
 #### JVM Mode:
+
 ```bash
 java -jar target/timestamp-server-1.0-SNAPSHOT.jar
 ```
 
 #### Native Mode:
+
 ```bash
 ./target/timestamp-server
 ```
 
 ## API Endpoints
 
-| Endpoint | Method | Description | Content-Type | Response Format |
-|----------|--------|-------------|----------------|----------------|
-| `/api/timestamp` | POST | RFC 3161 timestamp | `application/timestamp-query` | `application/timestamp-reply` |
-| `/api/timestamp/simple` | GET | Simple ISO 8601 timestamp | - | String |
-| `/api/timestamp/unix` | GET | Unix epoch timestamp | - | Long |
-| `/api/timestamp/health` | GET | Health check | - | String |
+| Endpoint                | Method | Description                                               | Content-Type                  | Response Format               |
+|-------------------------|--------|-----------------------------------------------------------|-------------------------------|-------------------------------|
+| `/api/timestamp`        | POST   | RFC 3161 timestamp query                                  | `application/timestamp-query` | `application/timestamp-reply` |
+| `/api/timestamp/simple` | GET    | Get current timestamp in ISO 8601 format                  | -                             | String (ISO 8601)             |
+| `/api/timestamp/unix`   | GET    | Get current timestamp as Unix epoch (seconds since epoch) | -                             | Long                          |
+| `/api/timestamp/health` | GET    | Health check endpoint                                     | -                             | String                        |
+
+### Actuator Endpoints
+
+The following actuator endpoints are exposed:
+
+- `/actuator/health` - Application health status
+- `/actuator/info` - Application information
+- `/actuator/metrics` - Application metrics
+- `/actuator/prometheus` - Prometheus metrics endpoint
 
 ## Docker Support
 
 ### Build Docker Image:
+
 ```bash
 docker build -t timestamp-server .
 ```
 
 ### Run with Docker:
+
 ```bash
 docker run -p 8080:8080 timestamp-server
 ```
@@ -76,30 +90,51 @@ docker run -p 8080:8080 timestamp-server
 ## Configuration
 
 Edit `src/main/resources/application.yml` to customize:
-- Server port
-- Security settings
-- Logging levels
-- Actuator endpoints
+
+- Server port and graceful shutdown settings
+- Spring application name
+- Actuator endpoints (health, info, metrics, prometheus)
+- Logging levels (root: INFO, com.digital.signature: DEBUG)
+- Timestamp server configuration:
+    - Key algorithm (RSA) and size (2048)
+    - Signature algorithm (SHA256WithRSA)
+    - Certificate subject details
+    - Policy ID for timestamping
+    - Validity period in days
+
+### Security Configuration
+
+The application uses Spring Security with the following settings:
+
+- Stateless session management (SessionCreationPolicy.STATELESS)
+- CSRF protection disabled for API endpoints (recommended for timestamp servers)
+- Public access to all endpoints including actuator endpoints
+- No authentication required by default
+  To customize security, modify the `SecurityFilterChain` bean in `TimestampServerApplication.java`.
 
 ## Testing
 
 Run all tests:
+
 ```bash
 ./mvnw test
 ```
 
 Run specific test class:
+
 ```bash
 ./mvnw test -Dtest=TimestampServiceTest
 ```
 
 ### Manual Testing with KEAASZ
 
-The application has been manually tested with the KEAASZ (Kormányzati Elektronikus Aláíró és Aláírás-ellenőrző Szolgáltatás) application, which can be downloaded from [here](https://keaesz.gov.hu/keaasz/).
+The application has been manually tested with the KEAASZ (Kormányzati Elektronikus Aláíró és Aláírás-ellenőrző
+Szolgáltatás) application, which can be downloaded from [here](https://keaasz.gov.hu/keaasz/).
 
 ## Native Image Configuration
 
 The application is configured for GraalVM Native Image with:
+
 - Automatic resource configuration
 - Static executable generation
 - Spring AOT support
@@ -109,15 +144,6 @@ The application is configured for GraalVM Native Image with:
 - CSRF protection disabled for API endpoints (recommended for timestamp servers)
 - Stateless session management
 - Configurable security rules
-
-## Performance Characteristics
-
-| Metric | Value |
-|--------|-------|
-| Startup Time (Native) | < 100ms |
-| Memory Footprint (Native) | ~50MB |
-| Request Latency | < 5ms |
-| Throughput | > 10,000 req/sec |
 
 ## Contributing
 
@@ -135,7 +161,5 @@ This project is licensed under the MIT License.
 ## Support
 
 For issues and questions, please open an issue in the GitHub repository.
-
 ---
-
-**Built with Spring Boot 3.5.6, GraalVM 25, and Maven**
+**Built with Spring Boot 3.5.6, GraalVM 25, and Maven**"

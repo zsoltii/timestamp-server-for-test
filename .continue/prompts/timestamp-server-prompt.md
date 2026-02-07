@@ -15,5 +15,5 @@
 - always run the all test to check, after a change everything work.
 
 # Maven
-- For maven use maven wrapper
+- For maven use maven wrapper: ./mvnw
 
