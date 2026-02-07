@@ -93,6 +93,10 @@ Run specific test class:
 ./mvnw test -Dtest=TimestampServiceTest
 ```
 
+### Manual Testing with KEAASZ
+
+The application has been manually tested with the KEAASZ (Kormányzati Elektronikus Aláíró és Aláírás-ellenőrző Szolgáltatás) application, which can be downloaded from [here](https://keaesz.gov.hu/keaasz/).
+
 ## Native Image Configuration
 
 The application is configured for GraalVM Native Image with:
