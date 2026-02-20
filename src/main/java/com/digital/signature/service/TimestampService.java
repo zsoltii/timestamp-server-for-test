@@ -1,9 +1,15 @@
 package com.digital.signature.service;
 
+import com.digital.signature.config.TimeStampConfig;
 import jakarta.annotation.PostConstruct;
+import java.io.FileInputStream;
 import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -36,51 +42,122 @@ import org.bouncycastle.tsp.TimeStampRequest;
 import org.bouncycastle.tsp.TimeStampResponse;
 import org.bouncycastle.tsp.TimeStampResponseGenerator;
 import org.bouncycastle.tsp.TimeStampTokenGenerator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 @Service
 public class TimestampService {
 
+    private static final Logger logger = LoggerFactory.getLogger(TimestampService.class);
+
     private TimeStampResponseGenerator timeStampResponseGenerator;
+
+    @Autowired private TimeStampConfig config;
 
     @PostConstruct
     public void init() {
         try {
-            // 1. Kulcspár generálás (RSA 2048) teszt célra
-            KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
-            keyPairGenerator.initialize(2048);
-            KeyPair keyPair = keyPairGenerator.generateKeyPair();
+            PrivateKey privateKey;
+            X509CertificateHolder certificateHolder;
 
-            // 2. Önaláírt tanúsítvány generálás
-            X500Name subject =
-                    new X500Name("CN=Test Timestamp Authority, O=Digital Signature, C=HU");
-            BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
-            Date notBefore = Date.from(Instant.now());
-            Date notAfter = Date.from(Instant.now().plus(365, ChronoUnit.DAYS));
+            // Check if PKCS12 keystore is configured
+            if (StringUtils.hasText(config.getKeystorePath())) {
+                logger.info(
+                        "Loading key and certificate from PKCS12 keystore: {}",
+                        config.getKeystorePath());
 
-            JcaX509v3CertificateBuilder certBuilder =
-                    new JcaX509v3CertificateBuilder(
-                            subject, serial, notBefore, notAfter, subject, keyPair.getPublic());
+                // Load PKCS12 keystore
+                KeyStore keystore = KeyStore.getInstance("PKCS12");
+                try (FileInputStream fis = new FileInputStream(config.getKeystorePath())) {
+                    keystore.load(fis, config.getKeystorePassword().toCharArray());
+                }
 
-            // Kiterjesztések hozzáadása a szabványos timestampinghez
-            certBuilder.addExtension(
-                    Extension.basicConstraints, true, new BasicConstraints(false)); // Nem CA
-            certBuilder.addExtension(
-                    Extension.keyUsage,
-                    true,
-                    new KeyUsage(KeyUsage.digitalSignature | KeyUsage.nonRepudiation));
-            certBuilder.addExtension(
-                    Extension.extendedKeyUsage,
-                    true,
-                    new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
+                // Get private key
+                String keyPassword =
+                        StringUtils.hasText(config.getKeyPassword())
+                                ? config.getKeyPassword()
+                                : config.getKeystorePassword();
 
+                privateKey =
+                        (PrivateKey)
+                                keystore.getKey(config.getKeyAlias(), keyPassword.toCharArray());
+
+                if (privateKey == null) {
+                    throw new IllegalStateException(
+                            "Private key not found in keystore with alias: "
+                                    + config.getKeyAlias());
+                }
+
+                // Get certificate
+                Certificate cert = keystore.getCertificate(config.getKeyAlias());
+                if (cert == null) {
+                    throw new IllegalStateException(
+                            "Certificate not found in keystore with alias: "
+                                    + config.getKeyAlias());
+                }
+
+                // Convert X509Certificate to X509CertificateHolder
+                X509Certificate x509Cert = (X509Certificate) cert;
+                certificateHolder = new X509CertificateHolder(x509Cert.getEncoded());
+
+                logger.info("Successfully loaded key and certificate from keystore");
+                logger.info(
+                        "Certificate subject: {}", x509Cert.getSubjectX500Principal().getName());
+                logger.info(
+                        "Certificate valid from: {} to: {}",
+                        x509Cert.getNotBefore(),
+                        x509Cert.getNotAfter());
+            } else {
+                logger.info(
+                        "No keystore configured, generating new key pair and self-signed certificate");
+
+                // 1. Kulcspár generálás (RSA 2048) teszt célra
+                KeyPairGenerator keyPairGenerator =
+                        KeyPairGenerator.getInstance(config.getKeyAlgorithm());
+                keyPairGenerator.initialize(config.getKeySize());
+                KeyPair keyPair = keyPairGenerator.generateKeyPair();
+                privateKey = keyPair.getPrivate();
+
+                // 2. Önaláírt tanúsítvány generálás
+                X500Name subject = new X500Name(config.getCertificateSubject());
+                BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
+                Date notBefore = Date.from(Instant.now());
+                Date notAfter =
+                        Date.from(Instant.now().plus(config.getValidityDays(), ChronoUnit.DAYS));
+
+                JcaX509v3CertificateBuilder certBuilder =
+                        new JcaX509v3CertificateBuilder(
+                                subject, serial, notBefore, notAfter, subject, keyPair.getPublic());
+
+                // Kiterjesztések hozzáadása a szabványos timestampinghez
+                certBuilder.addExtension(
+                        Extension.basicConstraints, true, new BasicConstraints(false)); // Nem CA
+                certBuilder.addExtension(
+                        Extension.keyUsage,
+                        true,
+                        new KeyUsage(KeyUsage.digitalSignature | KeyUsage.nonRepudiation));
+                certBuilder.addExtension(
+                        Extension.extendedKeyUsage,
+                        true,
+                        new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
+
+                ContentSigner contentSigner =
+                        new JcaContentSignerBuilder(config.getSignatureAlgorithm())
+                                .build(privateKey);
+                certificateHolder = certBuilder.build(contentSigner);
+
+                logger.info("Generated new self-signed certificate");
+            }
+
+            // Create ContentSigner with the private key
             ContentSigner contentSigner =
-                    new JcaContentSignerBuilder("SHA256WithRSA").build(keyPair.getPrivate());
-            X509CertificateHolder certificateHolder = certBuilder.build(contentSigner);
+                    new JcaContentSignerBuilder(config.getSignatureAlgorithm()).build(privateKey);
 
             // 3. TimeStampResponseGenerator inicializálás
-            // Teszt policy OID
-            ASN1ObjectIdentifier policyId = new ASN1ObjectIdentifier("1.3.6.1.4.1.13762.3");
+            ASN1ObjectIdentifier policyId = new ASN1ObjectIdentifier(config.getPolicyId());
 
             DigestCalculatorProvider digestCalculatorProvider =
                     new JcaDigestCalculatorProviderBuilder().build();

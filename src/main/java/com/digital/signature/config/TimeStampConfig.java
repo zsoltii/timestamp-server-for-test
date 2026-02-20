@@ -13,6 +13,12 @@ public class TimeStampConfig {
     private String policyId = "1.3.6.1.4.1.13762.3";
     private int validityDays = 365;
 
+    // PKCS12 Keystore configuration
+    private String keystorePath;
+    private String keystorePassword;
+    private String keyAlias;
+    private String keyPassword;
+
     // Getters and setters
     public String getKeyAlgorithm() {
         return keyAlgorithm;
@@ -60,5 +66,37 @@ public class TimeStampConfig {
 
     public void setValidityDays(int validityDays) {
         this.validityDays = validityDays;
+    }
+
+    public String getKeystorePath() {
+        return keystorePath;
+    }
+
+    public void setKeystorePath(String keystorePath) {
+        this.keystorePath = keystorePath;
+    }
+
+    public String getKeystorePassword() {
+        return keystorePassword;
+    }
+
+    public void setKeystorePassword(String keystorePassword) {
+        this.keystorePassword = keystorePassword;
+    }
+
+    public String getKeyAlias() {
+        return keyAlias;
+    }
+
+    public void setKeyAlias(String keyAlias) {
+        this.keyAlias = keyAlias;
+    }
+
+    public String getKeyPassword() {
+        return keyPassword;
+    }
+
+    public void setKeyPassword(String keyPassword) {
+        this.keyPassword = keyPassword;
     }
 }

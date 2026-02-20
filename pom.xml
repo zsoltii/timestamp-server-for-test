@@ -81,6 +81,9 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <mainClass>com.digital.signature.TimestampServerApplication</mainClass>
+                </configuration>
             </plugin>
 
             <!-- Maven Compiler Plugin -->
