@@ -231,4 +231,129 @@ public class TimestampService {
     public long generateUnixTimestamp() {
         return Instant.now().getEpochSecond();
     }
+
+    /**
+     * Update the signing key with a new PKCS12 keystore
+     *
+     * @param pkcs12Data The PKCS12 file data
+     * @param keystorePassword The password for the PKCS12 keystore
+     * @param keyPassword The password for the private key (optional, defaults to keystorePassword)
+     * @param keyAlias The alias of the key in the keystore (optional, defaults to first key found)
+     * @throws IllegalArgumentException if the input parameters are invalid
+     * @throws IllegalStateException if the key update fails due to internal error
+     */
+    public synchronized void updateSigningKey(
+            byte[] pkcs12Data, String keystorePassword, String keyPassword, String keyAlias)
+            throws Exception {
+        try {
+            logger.info("Updating signing key with new PKCS12 keystore");
+
+            // Load the new PKCS12 keystore
+            KeyStore newKeystore = KeyStore.getInstance("PKCS12");
+            newKeystore.load(
+                    new java.io.ByteArrayInputStream(pkcs12Data), keystorePassword.toCharArray());
+
+            // Use keystorePassword as default if keyPassword is not provided
+            String effectiveKeyPassword =
+                    keyPassword != null && !keyPassword.isEmpty() ? keyPassword : keystorePassword;
+
+            // Find the key alias if not provided
+            String effectiveKeyAlias = keyAlias;
+            if (effectiveKeyAlias == null || effectiveKeyAlias.isEmpty()) {
+                // Try to find the first private key entry
+                java.util.Enumeration<String> aliases = newKeystore.aliases();
+                while (aliases.hasMoreElements() && effectiveKeyAlias == null) {
+                    String alias = aliases.nextElement();
+                    if (newKeystore.isKeyEntry(alias)) {
+                        effectiveKeyAlias = alias;
+                    }
+                }
+
+                if (effectiveKeyAlias == null) {
+                    throw new IllegalArgumentException("No private key found in the PKCS12 file");
+                }
+            }
+
+            // Get private key
+            PrivateKey newPrivateKey =
+                    (PrivateKey)
+                            newKeystore.getKey(
+                                    effectiveKeyAlias, effectiveKeyPassword.toCharArray());
+            if (newPrivateKey == null) {
+                throw new IllegalArgumentException(
+                        "Private key not found with alias: " + effectiveKeyAlias);
+            }
+
+            // Get certificate
+            Certificate newCert = newKeystore.getCertificate(effectiveKeyAlias);
+            if (newCert == null) {
+                throw new IllegalArgumentException(
+                        "Certificate not found with alias: " + effectiveKeyAlias);
+            }
+
+            // Convert X509Certificate to X509CertificateHolder
+            X509Certificate x509Cert = (X509Certificate) newCert;
+            X509CertificateHolder newCertificateHolder =
+                    new X509CertificateHolder(x509Cert.getEncoded());
+
+            logger.info("Successfully loaded new key and certificate from PKCS12");
+            logger.info("Certificate subject: {}", x509Cert.getSubjectX500Principal().getName());
+            logger.info(
+                    "Certificate valid from: {} to: {}",
+                    x509Cert.getNotBefore(),
+                    x509Cert.getNotAfter());
+
+            // Update the TimeStampResponseGenerator with the new key and certificate
+            ContentSigner newContentSigner =
+                    new JcaContentSignerBuilder(config.getSignatureAlgorithm())
+                            .build(newPrivateKey);
+
+            DigestCalculatorProvider digestCalculatorProvider =
+                    new JcaDigestCalculatorProviderBuilder().build();
+            SignerInfoGenerator newSignerInfoGenerator =
+                    new JcaSignerInfoGeneratorBuilder(digestCalculatorProvider)
+                            .build(newContentSigner, newCertificateHolder);
+
+            DigestCalculator digestCalculator =
+                    digestCalculatorProvider.get(
+                            new AlgorithmIdentifier(OIWObjectIdentifiers.idSHA1));
+
+            TimeStampTokenGenerator newTokenGenerator =
+                    new TimeStampTokenGenerator(
+                            newSignerInfoGenerator,
+                            digestCalculator,
+                            new ASN1ObjectIdentifier(config.getPolicyId()));
+
+            // Add certificates to store
+            List<X509CertificateHolder> certs = new ArrayList<>();
+            certs.add(newCertificateHolder);
+            JcaCertStore certStore = new JcaCertStore(certs);
+            newTokenGenerator.addCertificates(certStore);
+
+            Set<ASN1ObjectIdentifier> acceptedAlgorithms = new HashSet<>();
+            acceptedAlgorithms.add(NISTObjectIdentifiers.id_sha256);
+            acceptedAlgorithms.add(NISTObjectIdentifiers.id_sha512);
+            acceptedAlgorithms.add(OIWObjectIdentifiers.idSHA1);
+
+            Set<String> acceptedAlgorithmOids =
+                    acceptedAlgorithms.stream()
+                            .map(ASN1ObjectIdentifier::getId)
+                            .collect(Collectors.toSet());
+
+            Set<String> acceptedPolicies = new HashSet<>();
+            acceptedPolicies.add(config.getPolicyId());
+
+            timeStampResponseGenerator =
+                    new TimeStampResponseGenerator(
+                            newTokenGenerator, acceptedAlgorithmOids, acceptedPolicies);
+
+            logger.info("Successfully updated TimeStampResponseGenerator with new signing key");
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid input for key update: {}", e.getMessage());
+            throw e; // Re-throw for ControllerAdvice to handle
+        } catch (Exception e) {
+            logger.error("Failed to update signing key", e);
+            throw new IllegalStateException("Failed to update signing key: " + e.getMessage(), e);
+        }
+    }
 }

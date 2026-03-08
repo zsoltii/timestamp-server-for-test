@@ -20,6 +20,8 @@
         <java.version>25</java.version>
         <bcpkix-jdk18on.version>1.83</bcpkix-jdk18on.version>
         <mockito-inline.version>5.2.0</mockito-inline.version>
+        <spotless-maven-plugin.version>3.3.0</spotless-maven-plugin.version>
+        <graalvm-native-plugin.version>0.11.5</graalvm-native-plugin.version>
     </properties>
 
     <dependencies>
@@ -107,7 +109,7 @@
             <plugin>
                 <groupId>com.diffplug.spotless</groupId>
                 <artifactId>spotless-maven-plugin</artifactId>
-                <version>3.2.1</version>
+                <version>${spotless-maven-plugin.version}</version>
                 <configuration>
                     <java>
                         <googleJavaFormat>
@@ -157,7 +159,7 @@
                     <plugin>
                         <groupId>org.graalvm.buildtools</groupId>
                         <artifactId>native-maven-plugin</artifactId>
-                        <version>0.10.1</version>
+                        <version>${graalvm-native-plugin.version}</version>
                         <executions>
                             <execution>
                                 <id>build-native</id>

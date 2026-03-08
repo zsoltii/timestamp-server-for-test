@@ -10,6 +10,7 @@ signature applications.
 
 - **RFC 3161 Timestamp Support**: Generates timestamps in ASN.1 format for digital signatures
 - **Multiple Timestamp Formats**: Supports RFC 3161, ISO 8601, and Unix epoch formats
+- **PKCS12 Key Management**: REST API endpoint for updating signing keys with PKCS12 keystores
 - **Native Image Optimization**: Compiled to native executable for superior performance
 - **Security**: Built-in Spring Security with configurable authentication
 - **Health Monitoring**: Actuator endpoints for monitoring and metrics
@@ -63,6 +64,7 @@ java -jar target/timestamp-server-1.0-SNAPSHOT.jar
 | `/api/timestamp/simple` | GET    | Get current timestamp in ISO 8601 format                  | -                             | String (ISO 8601)             |
 | `/api/timestamp/unix`   | GET    | Get current timestamp as Unix epoch (seconds since epoch) | -                             | Long                          |
 | `/api/timestamp/health` | GET    | Health check endpoint                                     | -                             | String                        |
+| `/api/timestamp/update-key` | POST | Update signing key with PKCS12 keystore (multipart/form-data) | `multipart/form-data` | String (success/error) |
 
 ### Actuator Endpoints
 
@@ -101,6 +103,7 @@ Edit `src/main/resources/application.yml` to customize:
     - Certificate subject details
     - Policy ID for timestamping
     - Validity period in days
+    - PKCS12 keystore path, password, key alias, and key password (for production use)
 
 ### Security Configuration
 
@@ -110,6 +113,7 @@ The application uses Spring Security with the following settings:
 - CSRF protection disabled for API endpoints (recommended for timestamp servers)
 - Public access to all endpoints including actuator endpoints
 - No authentication required by default
+- Global exception handling via `@RestControllerAdvice` for consistent error responses
   To customize security, modify the `SecurityFilterChain` bean in `TimestampServerApplication.java`.
 
 ## Testing
@@ -126,10 +130,35 @@ Run specific test class:
 ./mvnw test -Dtest=TimestampServiceTest
 ```
 
+Run PKCS12 key update tests:
+
+```bash
+./mvnw test -Dtest=TimestampServiceUpdateKeyTest
+./mvnw test -Dtest=TimestampControllerUpdateKeyTest
+```
+
 ### Manual Testing with KEAASZ
 
 The application has been manually tested with the KEAASZ (Kormányzati Elektronikus Aláíró és Aláírás-ellenőrző
 Szolgáltatás) application, which can be downloaded from [here](https://keaasz.gov.hu/keaasz/).
+
+### PKCS12 Key Update Testing
+
+To manually test the key update functionality:
+
+```bash
+# Generate a test keystore
+export JAVA_HOME=~/.jdks/graalvm-ce-25.0.2/
+./mvnw exec:java -Dexec.mainClass="com.digital.signature.util.TestKeystoreGenerator" \
+  -Dexec.args="test-keystore.p12 testPassword testKey keyPassword"
+
+# Update signing key via REST API
+curl -X POST "http://localhost:8080/api/timestamp/update-key" \
+  -F "file=@test-keystore.p12" \
+  -F "keystorePassword=testPassword" \
+  -F "keyPassword=keyPassword" \
+  -F "keyAlias=testKey"
+```
 
 ## Native Image Configuration
 
@@ -138,6 +167,35 @@ The application is configured for GraalVM Native Image with:
 - Automatic resource configuration
 - Static executable generation
 - Spring AOT support
+
+## PKCS12 Key Management
+
+The timestamp server now supports dynamic key updates via REST API. This feature allows you to:
+
+- Update signing keys without restarting the server
+- Use PKCS12 keystores with separate keystore and key passwords
+- Auto-detect key aliases if not specified
+- Validate certificates for proper timestamping extensions
+
+### REST API Endpoint
+
+```
+POST /api/timestamp/update-key
+```
+
+**Parameters:**
+- `file`: PKCS12 file (multipart/form-data)
+- `keystorePassword`: Keystore password (required)
+- `keyPassword`: Key password (optional, defaults to keystorePassword)
+- `keyAlias`: Key alias (optional, auto-detects first private key)
+
+**Responses:**
+- `200 OK`: Success - key updated
+- `500 Internal Server Error`: Error with ProblemDetail response
+
+### Security
+
+The key update endpoint uses the global `ErrorHandlerController` for exception handling, providing consistent RFC 7807 (Problem Details) error responses. All exceptions are logged with appropriate severity levels.
 
 ## Security Considerations
 
