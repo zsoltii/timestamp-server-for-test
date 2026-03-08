@@ -167,7 +167,12 @@
                         <jvmArg>-XX:-UseJVMCICompiler</jvmArg>
                     </jvmArgs>
                     <threads>${pitest.threads}</threads>
-                    <verbose>true</verbose>
+                    <verbose>false</verbose>
+                    <failWhenNoMutations>false</failWhenNoMutations>
+                    <!-- Coverage thresholds -->
+                    <coverageThreshold>100</coverageThreshold>
+                    <mutationThreshold>98</mutationThreshold>
+                    <testStrengthThreshold>100</testStrengthThreshold>
                 </configuration>
             </plugin>
         </plugins>
