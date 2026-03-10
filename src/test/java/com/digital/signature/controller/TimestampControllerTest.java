@@ -38,6 +38,9 @@ class TimestampControllerTest {
         assertThat(response).isNotNull();
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat(response.getBody()).isEqualTo(responseBytes);
+        assertThat(response.getHeaders().getContentType()).isNotNull();
+        assertThat(response.getHeaders().getContentType().toString())
+                .isEqualTo("application/timestamp-reply");
         verify(timestampService, times(1)).generateTimestampResponse(any(byte[].class));
     }
 

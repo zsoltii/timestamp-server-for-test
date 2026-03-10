@@ -16,9 +16,6 @@ public class ErrorHandlerController extends ResponseEntityExceptionHandler {
     @ExceptionHandler(Exception.class)
     ProblemDetail handleGlobalException(Exception e) {
         logger.error("An unexpected error occurred", e);
-        ProblemDetail problemDetail =
-                ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
-        problemDetail.setTitle("Internal Server Error");
-        return problemDetail;
+        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
     }
 }

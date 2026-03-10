@@ -22,8 +22,6 @@ class TimestampControllerUpdateKeyTest {
 
     @Autowired private MockMvc mockMvc;
 
-    @Autowired private TimestampController timestampController;
-
     private File testKeystoreFile;
     private String keystorePassword = "testPassword";
     private String keyPassword = "keyPassword";
@@ -39,152 +37,160 @@ class TimestampControllerUpdateKeyTest {
 
     @Test
     void updateSigningKey_shouldReturnSuccess_whenValidPkcs12FileProvided() throws Exception {
-        // Arrange - create multipart file
-        FileInputStream fileInputStream = new FileInputStream(testKeystoreFile);
-        MockMultipartFile pkcs12File =
-                new MockMultipartFile(
-                        "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
+        // Arrange - create multipart file using try-with-resources
+        try (FileInputStream fileInputStream = new FileInputStream(testKeystoreFile)) {
+            MockMultipartFile pkcs12File =
+                    new MockMultipartFile(
+                            "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
 
-        // Act & Assert
-        MvcResult result =
-                mockMvc.perform(
-                                multipart("/api/timestamp/update-key")
-                                        .file(pkcs12File)
-                                        .param("keystorePassword", keystorePassword)
-                                        .param("keyPassword", keyPassword)
-                                        .param("keyAlias", keyAlias))
-                        .andExpect(status().isOk())
-                        .andReturn();
+            // Act & Assert
+            MvcResult result =
+                    mockMvc.perform(
+                                    multipart("/api/timestamp/update-key")
+                                            .file(pkcs12File)
+                                            .param("keystorePassword", keystorePassword)
+                                            .param("keyPassword", keyPassword)
+                                            .param("keyAlias", keyAlias))
+                            .andExpect(status().isOk())
+                            .andReturn();
 
-        // Verify response
-        String responseBody = result.getResponse().getContentAsString();
-        assertThat(responseBody).contains("Signing key updated successfully");
+            // Verify response
+            String responseBody = result.getResponse().getContentAsString();
+            assertThat(responseBody).contains("Signing key updated successfully");
+        }
     }
 
     @Test
     void updateSigningKey_shouldReturnSuccess_whenKeyPasswordOmitted() throws Exception {
-        // Arrange - create multipart file
-        FileInputStream fileInputStream = new FileInputStream(testKeystoreFile);
-        MockMultipartFile pkcs12File =
-                new MockMultipartFile(
-                        "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
+        // Arrange - create multipart file using try-with-resources
+        try (FileInputStream fileInputStream = new FileInputStream(testKeystoreFile)) {
+            MockMultipartFile pkcs12File =
+                    new MockMultipartFile(
+                            "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
 
-        // Act & Assert - don't provide keyPassword, should use keystorePassword
-        // Note: This test expects the keystore to use the same password for both keystore and key
-        // The TestKeystoreGenerator uses different passwords, so we need to use the key password
-        MvcResult result =
-                mockMvc.perform(
-                                multipart("/api/timestamp/update-key")
-                                        .file(pkcs12File)
-                                        .param("keystorePassword", keystorePassword)
-                                        .param(
-                                                "keyPassword",
-                                                keyPassword) // Provide key password since it's
-                                        // different
-                                        .param("keyAlias", keyAlias))
-                        .andExpect(status().isOk())
-                        .andReturn();
+            // Act & Assert - don't provide keyPassword, should use keystorePassword
+            // Note: This test expects the keystore to use the same password for both keystore and
+            // key
+            // The TestKeystoreGenerator uses different passwords, so we need to use the key
+            // password
+            MvcResult result =
+                    mockMvc.perform(
+                                    multipart("/api/timestamp/update-key")
+                                            .file(pkcs12File)
+                                            .param("keystorePassword", keystorePassword)
+                                            .param(
+                                                    "keyPassword",
+                                                    keyPassword) // Provide key password since it's
+                                            // different
+                                            .param("keyAlias", keyAlias))
+                            .andExpect(status().isOk())
+                            .andReturn();
 
-        // Verify response
-        String responseBody = result.getResponse().getContentAsString();
-        assertThat(responseBody).contains("Signing key updated successfully");
+            // Verify response
+            String responseBody = result.getResponse().getContentAsString();
+            assertThat(responseBody).contains("Signing key updated successfully");
+        }
     }
 
     @Test
     void updateSigningKey_shouldReturnSuccess_whenKeyAliasOmitted() throws Exception {
-        // Arrange - create multipart file
-        FileInputStream fileInputStream = new FileInputStream(testKeystoreFile);
-        MockMultipartFile pkcs12File =
-                new MockMultipartFile(
-                        "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
+        // Arrange - create multipart file using try-with-resources
+        try (FileInputStream fileInputStream = new FileInputStream(testKeystoreFile)) {
+            MockMultipartFile pkcs12File =
+                    new MockMultipartFile(
+                            "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
 
-        // Act & Assert - don't provide keyAlias, should find first key
-        MvcResult result =
-                mockMvc.perform(
-                                multipart("/api/timestamp/update-key")
-                                        .file(pkcs12File)
-                                        .param("keystorePassword", keystorePassword)
-                                        .param("keyPassword", keyPassword))
-                        .andExpect(status().isOk())
-                        .andReturn();
+            // Act & Assert - don't provide keyAlias, should find first key
+            MvcResult result =
+                    mockMvc.perform(
+                                    multipart("/api/timestamp/update-key")
+                                            .file(pkcs12File)
+                                            .param("keystorePassword", keystorePassword)
+                                            .param("keyPassword", keyPassword))
+                            .andExpect(status().isOk())
+                            .andReturn();
 
-        // Verify response
-        String responseBody = result.getResponse().getContentAsString();
-        assertThat(responseBody).contains("Signing key updated successfully");
+            // Verify response
+            String responseBody = result.getResponse().getContentAsString();
+            assertThat(responseBody).contains("Signing key updated successfully");
+        }
     }
 
     @Test
     void updateSigningKey_shouldReturnBadRequest_whenInvalidPasswordProvided() throws Exception {
-        // Arrange - create multipart file
-        FileInputStream fileInputStream = new FileInputStream(testKeystoreFile);
-        MockMultipartFile pkcs12File =
-                new MockMultipartFile(
-                        "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
+        // Arrange - create multipart file using try-with-resources
+        try (FileInputStream fileInputStream = new FileInputStream(testKeystoreFile)) {
+            MockMultipartFile pkcs12File =
+                    new MockMultipartFile(
+                            "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
 
-        // Act & Assert - provide wrong password
-        MvcResult result =
-                mockMvc.perform(
-                                multipart("/api/timestamp/update-key")
-                                        .file(pkcs12File)
-                                        .param("keystorePassword", "wrongpassword")
-                                        .param("keyPassword", keyPassword)
-                                        .param("keyAlias", keyAlias))
-                        .andExpect(status().isInternalServerError())
-                        .andReturn();
+            // Act & Assert - provide wrong password
+            MvcResult result =
+                    mockMvc.perform(
+                                    multipart("/api/timestamp/update-key")
+                                            .file(pkcs12File)
+                                            .param("keystorePassword", "wrongpassword")
+                                            .param("keyPassword", keyPassword)
+                                            .param("keyAlias", keyAlias))
+                            .andExpect(status().isInternalServerError())
+                            .andReturn();
 
-        // Verify error response contains ProblemDetail structure
-        String responseBody = result.getResponse().getContentAsString();
-        assertThat(responseBody).contains("Internal Server Error");
+            // Verify error response contains ProblemDetail structure
+            String responseBody = result.getResponse().getContentAsString();
+            assertThat(responseBody).contains("Internal Server Error");
+        }
     }
 
     @Test
     void updateSigningKey_shouldReturnInternalServerError_whenInvalidKeyPasswordProvided()
             throws Exception {
-        // Arrange - create multipart file
-        FileInputStream fileInputStream = new FileInputStream(testKeystoreFile);
-        MockMultipartFile pkcs12File =
-                new MockMultipartFile(
-                        "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
+        // Arrange - create multipart file using try-with-resources
+        try (FileInputStream fileInputStream = new FileInputStream(testKeystoreFile)) {
+            MockMultipartFile pkcs12File =
+                    new MockMultipartFile(
+                            "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
 
-        // Act & Assert - provide wrong key password
-        MvcResult result =
-                mockMvc.perform(
-                                multipart("/api/timestamp/update-key")
-                                        .file(pkcs12File)
-                                        .param("keystorePassword", keystorePassword)
-                                        .param("keyPassword", "wrongkeypassword")
-                                        .param("keyAlias", keyAlias))
-                        .andExpect(status().isInternalServerError())
-                        .andReturn();
+            // Act & Assert - provide wrong key password
+            MvcResult result =
+                    mockMvc.perform(
+                                    multipart("/api/timestamp/update-key")
+                                            .file(pkcs12File)
+                                            .param("keystorePassword", keystorePassword)
+                                            .param("keyPassword", "wrongkeypassword")
+                                            .param("keyAlias", keyAlias))
+                            .andExpect(status().isInternalServerError())
+                            .andReturn();
 
-        // Verify error response contains ProblemDetail structure
-        String responseBody = result.getResponse().getContentAsString();
-        assertThat(responseBody).contains("Internal Server Error");
+            // Verify error response contains ProblemDetail structure
+            String responseBody = result.getResponse().getContentAsString();
+            assertThat(responseBody).contains("Internal Server Error");
+        }
     }
 
     @Test
     void updateSigningKey_shouldReturnInternalServerError_whenInvalidKeyAliasProvided()
             throws Exception {
-        // Arrange - create multipart file
-        FileInputStream fileInputStream = new FileInputStream(testKeystoreFile);
-        MockMultipartFile pkcs12File =
-                new MockMultipartFile(
-                        "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
+        // Arrange - create multipart file using try-with-resources
+        try (FileInputStream fileInputStream = new FileInputStream(testKeystoreFile)) {
+            MockMultipartFile pkcs12File =
+                    new MockMultipartFile(
+                            "file", "test-keystore.p12", "application/x-pkcs12", fileInputStream);
 
-        // Act & Assert - provide wrong key alias
-        MvcResult result =
-                mockMvc.perform(
-                                multipart("/api/timestamp/update-key")
-                                        .file(pkcs12File)
-                                        .param("keystorePassword", keystorePassword)
-                                        .param("keyPassword", keyPassword)
-                                        .param("keyAlias", "nonexistentalias"))
-                        .andExpect(status().isInternalServerError())
-                        .andReturn();
+            // Act & Assert - provide wrong key alias
+            MvcResult result =
+                    mockMvc.perform(
+                                    multipart("/api/timestamp/update-key")
+                                            .file(pkcs12File)
+                                            .param("keystorePassword", keystorePassword)
+                                            .param("keyPassword", keyPassword)
+                                            .param("keyAlias", "nonexistentalias"))
+                            .andExpect(status().isInternalServerError())
+                            .andReturn();
 
-        // Verify error response contains ProblemDetail structure
-        String responseBody = result.getResponse().getContentAsString();
-        assertThat(responseBody).contains("Internal Server Error");
+            // Verify error response contains ProblemDetail structure
+            String responseBody = result.getResponse().getContentAsString();
+            assertThat(responseBody).contains("Internal Server Error");
+        }
     }
 
     @Test
