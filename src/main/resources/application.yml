@@ -15,12 +15,6 @@ management:
     health:
       show-details: always
 
-# Logging configuration
-logging:
-  level:
-    root: INFO
-    com.digital.signature: DEBUG
-
 # Timestamp server configuration
 timestamp:
   key-algorithm: RSA

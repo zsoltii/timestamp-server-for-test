@@ -89,6 +89,70 @@ docker build -t timestamp-server .
 docker run -p 8080:8080 timestamp-server
 ```
 
+### Docker Configuration Options
+
+The Docker image supports the following configuration options:
+
+#### Environment Variables
+
+- `SPRING_PROFILES_ACTIVE` - Set to `docker` to activate Docker-specific configuration (default: `docker`)
+- Standard Spring Boot environment variables for all `application.yml` properties
+
+#### External Configuration
+
+Mount a custom configuration file to `/app/config/` to override default settings:
+
+```bash
+docker run -p 8080:8080 \
+  -v /path/to/your/config:/app/config \
+  timestamp-server
+```
+
+Configuration files in `/app/config/` take precedence over classpath settings.
+
+#### Using Docker Compose
+
+```bash
+# Start the service
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop the service
+docker compose down
+```
+
+#### Resource Limits (docker-compose.yml)
+
+The default configuration includes:
+- **Memory**: 256MB limit, 128MB reserved
+- **CPU**: 1.0 limit, 0.25 reserved
+- **Security**: Read-only filesystem, no-new-privileges
+- **Health Check**: 30s interval with 3 retries
+
+#### Custom Configuration Example
+
+Create a custom `application-override.yml`:
+
+```yaml
+server:
+  port: 8080
+
+timestamp:
+  certificate-subject: "CN=Production Timestamp Authority, O=My Company, C=HU"
+  validity-days: 730
+```
+
+Mount and activate:
+
+```bash
+docker run -p 8080:8080 \
+  -v $(pwd)/application-override.yml:/app/config/application-override.yml \
+  -e SPRING_CONFIG_IMPORT=optional:file:/app/config/application-override.yml \
+  timestamp-server
+```
+
 ## Configuration
 
 Edit `src/main/resources/application.yml` to customize:

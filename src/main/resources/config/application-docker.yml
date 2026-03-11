@@ -1,0 +1,34 @@
+# Docker-specific configuration
+# This profile is activated when running in Docker container
+
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: timestamp-server
+  config:
+    import: "optional:file:/app/config/override.yml"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+    metrics:
+      enabled: true
+# Timestamp server configuration - Docker defaults
+# In Docker, we typically use environment variables or mounted config
+timestamp:
+  key-algorithm: RSA
+  key-size: 2048
+  signature-algorithm: SHA256WithRSA
+  certificate-subject: CN=Docker Timestamp Authority, O=Digital Signature, C=HU
+  policy-id: 1.3.6.1.4.1.13762.3
+  validity-days: 365
