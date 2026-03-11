@@ -21,8 +21,7 @@ management:
       show-details: always
       probes:
         enabled: true
-    metrics:
-      enabled: true
+
 # Timestamp server configuration - Docker defaults
 # In Docker, we typically use environment variables or mounted config
 timestamp:
