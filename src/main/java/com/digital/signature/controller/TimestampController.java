@@ -75,4 +75,38 @@ public class TimestampController {
                 pkcs12File.getBytes(), keystorePassword, keyPassword, keyAlias);
         return ResponseEntity.ok("Signing key updated successfully");
     }
+
+    /**
+     * Get the signing certificate in DER format
+     *
+     * @return The certificate as a byte array in DER format
+     * @throws Exception if the certificate cannot be retrieved
+     */
+    @GetMapping("/certificate")
+    public ResponseEntity<byte[]> getSigningCertificate() throws Exception {
+        byte[] certificate = timestampService.getSigningCertificate();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("application/pkix-cert"));
+        headers.set("Content-Disposition", "attachment; filename=signing-certificate.cer");
+
+        return ResponseEntity.ok().headers(headers).body(certificate);
+    }
+
+    /**
+     * Get the signing certificate in PEM format
+     *
+     * @return The certificate as a String in PEM format
+     * @throws Exception if the certificate cannot be retrieved
+     */
+    @GetMapping(value = "/certificate/pem", produces = "application/x-pem-file")
+    public ResponseEntity<String> getSigningCertificateAsPem() throws Exception {
+        String pemCertificate = timestampService.getSigningCertificateAsPem();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("application/x-pem-file"));
+        headers.set("Content-Disposition", "attachment; filename=signing-certificate.pem");
+
+        return ResponseEntity.ok().headers(headers).body(pemCertificate);
+    }
 }

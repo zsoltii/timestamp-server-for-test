@@ -145,4 +145,74 @@ class TimestampServiceTest {
         // Assert
         assertThat(result).isGreaterThan(0);
     }
+
+    @Test
+    void getSigningCertificate_shouldReturnValidCertificate() throws Exception {
+        // Act
+        byte[] certificate = timestampService.getSigningCertificate();
+
+        // Assert
+        assertThat(certificate).isNotNull();
+        assertThat(certificate).isNotEmpty();
+        // Verify it's a valid X.509 certificate by trying to parse it
+        java.security.cert.CertificateFactory certFactory =
+                java.security.cert.CertificateFactory.getInstance("X.509");
+        java.io.ByteArrayInputStream certStream = new java.io.ByteArrayInputStream(certificate);
+        java.security.cert.X509Certificate x509Cert =
+                (java.security.cert.X509Certificate) certFactory.generateCertificate(certStream);
+        assertThat(x509Cert.getSubjectX500Principal().getName()).isNotNull();
+    }
+
+    @Test
+    void getSigningCertificateAsPem_shouldReturnValidPem() throws Exception {
+        // Act
+        String pemCertificate = timestampService.getSigningCertificateAsPem();
+
+        // Assert
+        assertThat(pemCertificate).isNotNull();
+        assertThat(pemCertificate).startsWith("-----BEGIN CERTIFICATE-----");
+        assertThat(pemCertificate).endsWith("-----END CERTIFICATE-----");
+        // Verify base64 content exists between headers
+        String[] lines = pemCertificate.split("\n");
+        assertThat(lines.length).isGreaterThan(2);
+        assertThat(lines[1]).isNotEmpty(); // Base64 content
+    }
+
+    @Test
+    void getSigningCertificateAsPem_shouldReturnCertificateThatCanBeParsed() throws Exception {
+        // Act
+        String pemCertificate = timestampService.getSigningCertificateAsPem();
+
+        // Extract base64 content (remove PEM headers and newlines)
+        String base64Content =
+                pemCertificate
+                        .replace("-----BEGIN CERTIFICATE-----", "")
+                        .replace("-----END CERTIFICATE-----", "")
+                        .replaceAll("\\s", "");
+
+        // Decode and verify it's a valid X.509 certificate
+        byte[] derBytes = java.util.Base64.getDecoder().decode(base64Content);
+        java.security.cert.CertificateFactory certFactory =
+                java.security.cert.CertificateFactory.getInstance("X.509");
+        java.io.ByteArrayInputStream certStream = new java.io.ByteArrayInputStream(derBytes);
+        java.security.cert.X509Certificate x509Cert =
+                (java.security.cert.X509Certificate) certFactory.generateCertificate(certStream);
+        assertThat(x509Cert.getSubjectX500Principal().getName()).isNotNull();
+    }
+
+    @Test
+    void getSigningCertificateAsPem_shouldThrowException_whenCertificateNotInitialized()
+            throws Exception {
+        // Arrange - Create a new service instance without initialization
+        TimestampService uninitializedService = new TimestampService();
+        java.lang.reflect.Field signingCertField =
+                TimestampService.class.getDeclaredField("signingCertificate");
+        signingCertField.setAccessible(true);
+        signingCertField.set(uninitializedService, null);
+
+        // Act & Assert
+        assertThatThrownBy(uninitializedService::getSigningCertificateAsPem)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Signing certificate not initialized");
+    }
 }

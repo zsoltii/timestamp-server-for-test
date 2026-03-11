@@ -1,6 +1,7 @@
 package com.digital.signature.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -77,5 +78,61 @@ class TimestampControllerTest {
 
         // Assert
         assertThat(result).isEqualTo("Timestamp Server is running");
+    }
+
+    @Test
+    void getSigningCertificate_shouldReturnCertificateInDerFormat() throws Exception {
+        // Arrange
+        byte[] mockCertificate = "mock-certificate-data".getBytes();
+        when(timestampService.getSigningCertificate()).thenReturn(mockCertificate);
+
+        // Act
+        ResponseEntity<byte[]> response = timestampController.getSigningCertificate();
+
+        // Assert
+        assertThat(response).isNotNull();
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody()).isEqualTo(mockCertificate);
+        assertThat(response.getHeaders().getContentType()).isNotNull();
+        assertThat(response.getHeaders().getContentType().toString())
+                .isEqualTo("application/pkix-cert");
+        assertThat(response.getHeaders().getFirst("Content-Disposition"))
+                .contains("attachment; filename=");
+        verify(timestampService, times(1)).getSigningCertificate();
+    }
+
+    @Test
+    void getSigningCertificate_shouldReturnCertificateInPemFormat_whenPemRequested()
+            throws Exception {
+        // Arrange
+        String mockPemCertificate =
+                "-----BEGIN CERTIFICATE-----\nmock-base64-content\n-----END CERTIFICATE-----";
+        when(timestampService.getSigningCertificateAsPem()).thenReturn(mockPemCertificate);
+
+        // Act
+        ResponseEntity<String> response = timestampController.getSigningCertificateAsPem();
+
+        // Assert
+        assertThat(response).isNotNull();
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody()).contains("BEGIN CERTIFICATE");
+        assertThat(response.getHeaders().getContentType()).isNotNull();
+        assertThat(response.getHeaders().getContentType().toString())
+                .isEqualTo("application/x-pem-file");
+        assertThat(response.getHeaders().getFirst("Content-Disposition"))
+                .contains("attachment; filename=");
+        verify(timestampService, times(1)).getSigningCertificateAsPem();
+    }
+
+    @Test
+    void getSigningCertificate_shouldPropagateException_whenServiceThrows() throws Exception {
+        // Arrange
+        when(timestampService.getSigningCertificate())
+                .thenThrow(new IllegalStateException("Certificate not initialized"));
+
+        // Act & Assert
+        assertThatThrownBy(() -> timestampController.getSigningCertificate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Certificate not initialized");
     }
 }

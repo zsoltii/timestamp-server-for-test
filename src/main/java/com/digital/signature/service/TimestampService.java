@@ -54,6 +54,7 @@ public class TimestampService {
     private static final Logger logger = LoggerFactory.getLogger(TimestampService.class);
 
     private TimeStampResponseGenerator timeStampResponseGenerator;
+    private X509CertificateHolder signingCertificate;
 
     @Autowired private TimeStampConfig config;
 
@@ -61,7 +62,6 @@ public class TimestampService {
     public void init() {
         try {
             PrivateKey privateKey;
-            X509CertificateHolder certificateHolder;
 
             // Check if PKCS12 keystore is configured
             if (StringUtils.hasText(config.getKeystorePath())) {
@@ -101,7 +101,7 @@ public class TimestampService {
 
                 // Convert X509Certificate to X509CertificateHolder
                 X509Certificate x509Cert = (X509Certificate) cert;
-                certificateHolder = new X509CertificateHolder(x509Cert.getEncoded());
+                signingCertificate = new X509CertificateHolder(x509Cert.getEncoded());
 
                 logger.info("Successfully loaded key and certificate from keystore");
                 logger.info(
@@ -147,7 +147,7 @@ public class TimestampService {
                 ContentSigner contentSigner =
                         new JcaContentSignerBuilder(config.getSignatureAlgorithm())
                                 .build(privateKey);
-                certificateHolder = certBuilder.build(contentSigner);
+                signingCertificate = certBuilder.build(contentSigner);
 
                 logger.info("Generated new self-signed certificate");
             }
@@ -165,7 +165,7 @@ public class TimestampService {
             // SignerInfoGenerator létrehozása
             SignerInfoGenerator signerInfoGenerator =
                     new JcaSignerInfoGeneratorBuilder(digestCalculatorProvider)
-                            .build(contentSigner, certificateHolder);
+                            .build(contentSigner, signingCertificate);
 
             // DigestCalculator létrehozása (SHA-1 a timestamp tokenhez)
             DigestCalculator digestCalculator =
@@ -177,7 +177,7 @@ public class TimestampService {
 
             // Tanúsítványok hozzáadása Store-ként
             List<X509CertificateHolder> certs = new ArrayList<>();
-            certs.add(certificateHolder);
+            certs.add(signingCertificate);
             JcaCertStore certStore = new JcaCertStore(certs);
             tokenGenerator.addCertificates(certStore);
 
@@ -232,6 +232,34 @@ public class TimestampService {
         return Instant.now().getEpochSecond();
     }
 
+    /** Get the current signing certificate in DER format */
+    public byte[] getSigningCertificate() throws Exception {
+        if (signingCertificate == null) {
+            throw new IllegalStateException("Signing certificate not initialized");
+        }
+        return signingCertificate.getEncoded();
+    }
+
+    /** Get the current signing certificate in PEM format */
+    public String getSigningCertificateAsPem() throws Exception {
+        byte[] derCertificate = getSigningCertificate();
+        return convertDerToPem(derCertificate);
+    }
+
+    /** Convert DER encoded certificate to PEM format */
+    private String convertDerToPem(byte[] derBytes) {
+        String base64 = java.util.Base64.getEncoder().encodeToString(derBytes);
+        // Wrap base64 content into 64-character lines
+        StringBuilder pem = new StringBuilder();
+        pem.append("-----BEGIN CERTIFICATE-----\n");
+        for (int i = 0; i < base64.length(); i += 64) {
+            int end = Math.min(i + 64, base64.length());
+            pem.append(base64, i, end).append("\n");
+        }
+        pem.append("-----END CERTIFICATE-----");
+        return pem.toString();
+    }
+
     /**
      * Update the signing key with a new PKCS12 keystore
      *
@@ -243,8 +271,7 @@ public class TimestampService {
      * @throws IllegalStateException if the key update fails due to internal error
      */
     public synchronized void updateSigningKey(
-            byte[] pkcs12Data, String keystorePassword, String keyPassword, String keyAlias)
-            throws Exception {
+            byte[] pkcs12Data, String keystorePassword, String keyPassword, String keyAlias) {
         try {
             logger.info("Updating signing key with new PKCS12 keystore");
 
