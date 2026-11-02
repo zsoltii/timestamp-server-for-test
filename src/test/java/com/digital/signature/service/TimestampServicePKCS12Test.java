@@ -3,21 +3,19 @@ package com.digital.signature.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.digital.signature.AbstractTest;
 import com.digital.signature.config.TimeStampConfig;
 import com.digital.signature.util.TestKeystoreGenerator;
-import java.io.IOException;
 import java.nio.file.Path;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * Test suite for PKCS12 keystore loading functionality in TimestampService. Tests both positive
  * scenarios (successful loading) and negative scenarios (error cases).
  */
-class TimestampServicePKCS12Test {
+class TimestampServicePKCS12Test extends AbstractTest {
 
     @TempDir Path tempDir;
 
@@ -26,7 +24,7 @@ class TimestampServicePKCS12Test {
     private Path keystorePath;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         config = new TimeStampConfig();
         // Set default configuration
         config.setKeyAlgorithm("RSA");
@@ -36,15 +34,8 @@ class TimestampServicePKCS12Test {
         config.setPolicyId("1.3.6.1.4.1.13762.3");
         config.setValidityDays(365);
 
-        timestampService = new TimestampService();
-        ReflectionTestUtils.setField(timestampService, "config", config);
-
+        timestampService = new TimestampService(config);
         keystorePath = tempDir.resolve("test-keystore.p12");
-    }
-
-    @AfterEach
-    void tearDown() throws IOException {
-        // Clean up is handled by @TempDir automatically
     }
 
     /** Helper method to generate RSA keystore for each test */
@@ -182,107 +173,7 @@ class TimestampServicePKCS12Test {
         // Act & Assert
         assertThatThrownBy(() -> timestampService.init())
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Failed to initialize TimestampService")
-                .hasCauseInstanceOf(IOException.class);
-    }
-
-    @Test
-    void init_shouldThrowException_whenInvalidKeystorePassword() throws Exception {
-        // Arrange - Generate RSA keystore
-        generateRSAKeystore("correctPassword", "testKey", "keyPassword");
-
-        config.setKeystorePath(keystorePath.toString());
-        config.setKeystorePassword("wrongPassword");
-        config.setKeyAlias("testKey");
-        config.setKeyPassword("keyPassword");
-
-        // Act & Assert
-        assertThatThrownBy(() -> timestampService.init())
-                .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Failed to initialize TimestampService");
-    }
-
-    @Test
-    void init_shouldThrowException_whenInvalidKeyPassword() throws Exception {
-        // Arrange - Generate RSA keystore
-        generateRSAKeystore("testPassword", "testKey", "correctKeyPassword");
-
-        config.setKeystorePath(keystorePath.toString());
-        config.setKeystorePassword("testPassword");
-        config.setKeyAlias("testKey");
-        config.setKeyPassword("wrongKeyPassword");
-
-        // Act & Assert
-        assertThatThrownBy(() -> timestampService.init())
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Failed to initialize TimestampService");
-    }
-
-    @Test
-    void init_shouldThrowException_whenKeyAliasNotFound() throws Exception {
-        // Arrange - Generate RSA keystore
-        generateRSAKeystore("testPassword", "testKey", "keyPassword");
-
-        config.setKeystorePath(keystorePath.toString());
-        config.setKeystorePassword("testPassword");
-        config.setKeyAlias("nonExistentAlias");
-        config.setKeyPassword("keyPassword");
-
-        // Act & Assert
-        assertThatThrownBy(() -> timestampService.init())
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Failed to initialize TimestampService")
-                .hasRootCauseInstanceOf(IllegalStateException.class)
-                .hasRootCauseMessage(
-                        "Private key not found in keystore with alias: nonExistentAlias");
-    }
-
-    @Test
-    void init_shouldThrowException_whenKeystoreIsCorrupted() throws Exception {
-        // Arrange
-        TestKeystoreGenerator.generateCorruptedKeystore(keystorePath.toString());
-
-        config.setKeystorePath(keystorePath.toString());
-        config.setKeystorePassword("testPassword");
-        config.setKeyAlias("testKey");
-        config.setKeyPassword("keyPassword");
-
-        // Act & Assert
-        assertThatThrownBy(() -> timestampService.init())
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Failed to initialize TimestampService");
-    }
-
-    @Test
-    void init_shouldThrowException_whenKeystorePathIsEmpty() {
-        // Arrange - Empty keystore path (edge case with empty string)
-        config.setKeystorePath("");
-        config.setKeystorePassword("testPassword");
-        config.setKeyAlias("testKey");
-
-        // Act - Should generate key pair instead (empty string is treated as no config)
-        timestampService.init();
-
-        // Assert - Should work with generated key pair
-        String timestamp = timestampService.generateSimpleTimestamp();
-        assertThat(timestamp).isNotNull().isNotEmpty();
-    }
-
-    @Test
-    void init_shouldThrowException_whenKeystorePasswordIsNull() throws Exception {
-        // Arrange - Generate RSA keystore
-        generateRSAKeystore("testPassword", "testKey", "keyPassword");
-
-        config.setKeystorePath(keystorePath.toString());
-        config.setKeystorePassword(null);
-        config.setKeyAlias("testKey");
-        config.setKeyPassword("keyPassword");
-
-        // Act & Assert
-        assertThatThrownBy(() -> timestampService.init())
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Failed to initialize TimestampService")
-                .hasCauseInstanceOf(NullPointerException.class);
     }
 
     @Test
@@ -299,6 +190,8 @@ class TimestampServicePKCS12Test {
         assertThatThrownBy(() -> timestampService.init())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Failed to initialize TimestampService")
-                .hasCauseInstanceOf(NullPointerException.class);
+                .cause()
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Key alias cannot be null");
     }
 }

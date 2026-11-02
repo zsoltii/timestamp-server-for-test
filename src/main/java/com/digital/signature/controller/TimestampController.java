@@ -6,6 +6,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/timestamp")
@@ -14,7 +15,7 @@ public class TimestampController {
     private final TimestampService timestampService;
 
     @Autowired
-    public TimestampController(TimestampService timestampService) {
+    public TimestampController(final TimestampService timestampService) {
         this.timestampService = timestampService;
     }
 
@@ -23,11 +24,11 @@ public class TimestampController {
      * application/timestamp-reply
      */
     @PostMapping(consumes = "application/timestamp-query", produces = "application/timestamp-reply")
-    public ResponseEntity<byte[]> handleTimestampQuery(@RequestBody byte[] requestBytes)
-            throws Exception {
-        byte[] responseBytes = timestampService.generateTimestampResponse(requestBytes);
+    public ResponseEntity<byte[]> handleTimestampQuery(@RequestBody final byte[] requestBytes)
+            throws java.io.IOException, org.bouncycastle.tsp.TSPException {
+        final byte[] responseBytes = timestampService.generateTimestampResponse(requestBytes);
 
-        HttpHeaders headers = new HttpHeaders();
+        final HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType("application/timestamp-reply"));
 
         return ResponseEntity.ok().headers(headers).body(responseBytes);
@@ -36,14 +37,14 @@ public class TimestampController {
     /** Get current timestamp in simple format (ISO 8601) */
     @GetMapping("/simple")
     public ResponseEntity<String> getSimpleTimestamp() {
-        String timestamp = timestampService.generateSimpleTimestamp();
+        final String timestamp = timestampService.generateSimpleTimestamp();
         return ResponseEntity.ok(timestamp);
     }
 
     /** Get current timestamp in Unix format (seconds since epoch) */
     @GetMapping("/unix")
     public ResponseEntity<Long> getUnixTimestamp() {
-        long timestamp = timestampService.generateUnixTimestamp();
+        final long timestamp = timestampService.generateUnixTimestamp();
         return ResponseEntity.ok(timestamp);
     }
 
@@ -66,10 +67,10 @@ public class TimestampController {
      */
     @PostMapping("/update-key")
     public ResponseEntity<String> updateSigningKey(
-            @RequestParam("file") org.springframework.web.multipart.MultipartFile pkcs12File,
-            @RequestParam("keystorePassword") String keystorePassword,
-            @RequestParam(value = "keyPassword", required = false) String keyPassword,
-            @RequestParam(value = "keyAlias", required = false) String keyAlias)
+            @RequestParam("file") final MultipartFile pkcs12File,
+            @RequestParam("keystorePassword") final String keystorePassword,
+            @RequestParam(value = "keyPassword", required = false) final String keyPassword,
+            @RequestParam(value = "keyAlias", required = false) final String keyAlias)
             throws Exception {
         timestampService.updateSigningKey(
                 pkcs12File.getBytes(), keystorePassword, keyPassword, keyAlias);
@@ -84,9 +85,9 @@ public class TimestampController {
      */
     @GetMapping("/certificate")
     public ResponseEntity<byte[]> getSigningCertificate() throws Exception {
-        byte[] certificate = timestampService.getSigningCertificate();
+        final byte[] certificate = timestampService.getSigningCertificate();
 
-        HttpHeaders headers = new HttpHeaders();
+        final HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType("application/pkix-cert"));
         headers.set("Content-Disposition", "attachment; filename=signing-certificate.cer");
 
@@ -101,9 +102,9 @@ public class TimestampController {
      */
     @GetMapping(value = "/certificate/pem", produces = "application/x-pem-file")
     public ResponseEntity<String> getSigningCertificateAsPem() throws Exception {
-        String pemCertificate = timestampService.getSigningCertificateAsPem();
+        final String pemCertificate = timestampService.getSigningCertificateAsPem();
 
-        HttpHeaders headers = new HttpHeaders();
+        final HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType("application/x-pem-file"));
         headers.set("Content-Disposition", "attachment; filename=signing-certificate.pem");
 

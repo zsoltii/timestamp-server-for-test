@@ -18,14 +18,17 @@
 
     <properties>
         <java.version>25</java.version>
-        <bcpkix-jdk18on.version>1.83</bcpkix-jdk18on.version>
-        <mockito-inline.version>5.2.0</mockito-inline.version>
-        <spotless-maven-plugin.version>3.3.0</spotless-maven-plugin.version>
-        <graalvm-native-plugin.version>0.11.5</graalvm-native-plugin.version>
+        <bcpkix-jdk18on.version>1.86</bcpkix-jdk18on.version>
+        <spotless-maven-plugin.version>3.10.4</spotless-maven-plugin.version>
+        <graalvm-native-plugin.version>1.1.18</graalvm-native-plugin.version>
         <google-java-format.version>1.34.1</google-java-format.version>
-        <pitest-maven.version>1.22.1</pitest-maven.version>
+        <pitest-maven.version>1.30.1</pitest-maven.version>
         <pitest-junit5-plugin.version>1.2.3</pitest-junit5-plugin.version>
         <pitest.threads>8</pitest.threads>
+        <jacoco-maven-plugin.version>0.8.12</jacoco-maven-plugin.version>
+        <spotbugs-maven-plugin.version>4.10.5.0</spotbugs-maven-plugin.version>
+        <pmd-maven-plugin.version>3.28.0</pmd-maven-plugin.version>
+        <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
     </properties>
 
     <dependencies>
@@ -77,12 +80,6 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-inline</artifactId>
-            <version>${mockito-inline.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -137,6 +134,96 @@
                 </executions>
             </plugin>
 
+            <!-- JaCoCo Code Coverage - SKIPPED for Java 25 compatibility -->
+            <!-- JaCoCo 0.8.12 doesn't support Java 25 (class file version 69) -->
+            <!-- Re-enable when JaCoCo 0.8.13+ is released -->
+            <!--
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco-maven-plugin.version}</version>
+                <configuration>
+                    <excludes>
+                        <exclude>com/digital/signature/*Test*</exclude>
+                        <exclude>com/digital/signature/**/Test*</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            -->
+
+            <!-- SpotBugs for bug detection -->
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>${spotbugs-maven-plugin.version}</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Low</threshold>
+                    <xmlOutput>true</xmlOutput>
+                    <htmlOutput>true</htmlOutput>
+                </configuration>
+            </plugin>
+
+            <!-- PMD for code quality -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-pmd-plugin</artifactId>
+                <version>${pmd-maven-plugin.version}</version>
+                <configuration>
+                    <printFailingErrors>true</printFailingErrors>
+                    <analysisCache>true</analysisCache>
+                    <rulesets>
+                        <ruleset>pmd-custom-ruleset.xml</ruleset>
+                    </rulesets>
+                    <excludes>
+                        <exclude>**/*Test.java</exclude>
+                        <exclude>**/test/**</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Checkstyle for code style -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>${maven-checkstyle-plugin.version}</version>
+                <configuration>
+                    <configLocation>google_checks.xml</configLocation>
+                    <suppressionsLocation>checkstyle-suppressions.xml</suppressionsLocation>
+                    <consoleOutput>true</consoleOutput>
+                    <failsOnError>false</failsOnError>
+                    <linkXRef>false</linkXRef>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- PIT Mutation Testing -->
             <plugin>
                 <groupId>org.pitest</groupId>
@@ -171,8 +258,8 @@
                     <failWhenNoMutations>false</failWhenNoMutations>
                     <!-- Coverage thresholds -->
                     <coverageThreshold>95</coverageThreshold>
-                    <mutationThreshold>85</mutationThreshold>
-                    <testStrengthThreshold>85</testStrengthThreshold>
+                    <mutationThreshold>90</mutationThreshold>
+                    <testStrengthThreshold>90</testStrengthThreshold>
                 </configuration>
             </plugin>
         </plugins>

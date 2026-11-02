@@ -4,11 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.digital.signature.AbstractTest;
 import com.digital.signature.util.TestKeystoreGenerator;
 import java.io.File;
 import java.io.FileInputStream;
+import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -18,7 +21,9 @@ import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class TimestampControllerUpdateKeyTest {
+class TimestampControllerUpdateKeyTest extends AbstractTest {
+
+    @TempDir Path tempDir;
 
     @Autowired private MockMvc mockMvc;
 
@@ -28,9 +33,9 @@ class TimestampControllerUpdateKeyTest {
     private String keyAlias = "testKey";
 
     @BeforeEach
-    void setup() throws Exception {
-        // Generate a test keystore file
-        testKeystoreFile = new File("target/test-keystore.p12");
+    void setUp() throws Exception {
+        // Generate test keystore before each test
+        testKeystoreFile = tempDir.resolve("test-keystore.p12").toFile();
         TestKeystoreGenerator.generateTestKeystore(
                 testKeystoreFile.getAbsolutePath(), keystorePassword, keyAlias, keyPassword);
     }

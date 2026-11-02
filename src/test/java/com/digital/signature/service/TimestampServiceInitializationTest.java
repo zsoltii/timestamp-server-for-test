@@ -2,6 +2,7 @@ package com.digital.signature.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.digital.signature.AbstractTest;
 import com.digital.signature.TimestampServerApplication;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
@@ -11,7 +12,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.UnsatisfiedDependencyException;
 import org.springframework.boot.SpringApplication;
 
-class TimestampServiceInitializationTest {
+class TimestampServiceInitializationTest extends AbstractTest {
 
     @Test
     void init_shouldThrowIllegalStateException_whenKeyPairGeneratorFails() {

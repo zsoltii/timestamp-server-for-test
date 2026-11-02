@@ -8,8 +8,8 @@ import org.springframework.stereotype.Component;
 public class TimeStampConfig {
     private String keyAlgorithm = "RSA";
     private int keySize = 2048;
-    private String signatureAlgorithm = "SHA256WithRSA";
-    private String certificateSubject = "CN=Test Timestamp Authority, O=Digital Signature, C=HU";
+    private String sigAlgo = "SHA256WithRSA";
+    private String certSubject = "CN=Test Timestamp Authority, O=Digital Signature, C=HU";
     private String policyId = "1.3.6.1.4.1.13762.3";
     private int validityDays = 365;
 
@@ -19,12 +19,11 @@ public class TimeStampConfig {
     private String keyAlias;
     private String keyPassword;
 
-    // Getters and setters
     public String getKeyAlgorithm() {
         return keyAlgorithm;
     }
 
-    public void setKeyAlgorithm(String keyAlgorithm) {
+    public void setKeyAlgorithm(final String keyAlgorithm) {
         this.keyAlgorithm = keyAlgorithm;
     }
 
@@ -32,31 +31,31 @@ public class TimeStampConfig {
         return keySize;
     }
 
-    public void setKeySize(int keySize) {
+    public void setKeySize(final int keySize) {
         this.keySize = keySize;
     }
 
     public String getSignatureAlgorithm() {
-        return signatureAlgorithm;
+        return sigAlgo;
     }
 
-    public void setSignatureAlgorithm(String signatureAlgorithm) {
-        this.signatureAlgorithm = signatureAlgorithm;
+    public void setSignatureAlgorithm(final String sigAlgo) {
+        this.sigAlgo = sigAlgo;
     }
 
     public String getCertificateSubject() {
-        return certificateSubject;
+        return certSubject;
     }
 
-    public void setCertificateSubject(String certificateSubject) {
-        this.certificateSubject = certificateSubject;
+    public void setCertificateSubject(final String certSubject) {
+        this.certSubject = certSubject;
     }
 
     public String getPolicyId() {
         return policyId;
     }
 
-    public void setPolicyId(String policyId) {
+    public void setPolicyId(final String policyId) {
         this.policyId = policyId;
     }
 
@@ -64,7 +63,7 @@ public class TimeStampConfig {
         return validityDays;
     }
 
-    public void setValidityDays(int validityDays) {
+    public void setValidityDays(final int validityDays) {
         this.validityDays = validityDays;
     }
 
@@ -72,7 +71,7 @@ public class TimeStampConfig {
         return keystorePath;
     }
 
-    public void setKeystorePath(String keystorePath) {
+    public void setKeystorePath(final String keystorePath) {
         this.keystorePath = keystorePath;
     }
 
@@ -80,7 +79,7 @@ public class TimeStampConfig {
         return keystorePassword;
     }
 
-    public void setKeystorePassword(String keystorePassword) {
+    public void setKeystorePassword(final String keystorePassword) {
         this.keystorePassword = keystorePassword;
     }
 
@@ -88,7 +87,7 @@ public class TimeStampConfig {
         return keyAlias;
     }
 
-    public void setKeyAlias(String keyAlias) {
+    public void setKeyAlias(final String keyAlias) {
         this.keyAlias = keyAlias;
     }
 
@@ -96,7 +95,15 @@ public class TimeStampConfig {
         return keyPassword;
     }
 
-    public void setKeyPassword(String keyPassword) {
+    public void setKeyPassword(final String keyPassword) {
         this.keyPassword = keyPassword;
+    }
+
+    public boolean isKeystoreConfigured() {
+        return keystorePath != null && !keystorePath.isEmpty();
+    }
+
+    public boolean hasValidKeystoreConfig() {
+        return isKeystoreConfigured() && keystorePassword != null && keyAlias != null;
     }
 }

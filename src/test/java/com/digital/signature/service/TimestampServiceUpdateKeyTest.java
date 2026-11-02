@@ -3,6 +3,7 @@ package com.digital.signature.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.digital.signature.AbstractTest;
 import java.math.BigInteger;
 import java.security.KeyStore;
 import java.security.MessageDigest;
@@ -16,7 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class TimestampServiceUpdateKeyTest {
+class TimestampServiceUpdateKeyTest extends AbstractTest {
 
     @Autowired private TimestampService timestampService;
 
@@ -26,8 +27,7 @@ class TimestampServiceUpdateKeyTest {
     private String originalKeyAlias = "testkey";
 
     @BeforeEach
-    void setup() throws Exception {
-        // Create a test PKCS12 file for testing
+    void setUp() throws Exception {
         originalPkcs12Data = createTestPkcs12File();
     }
 

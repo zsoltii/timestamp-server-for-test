@@ -2,18 +2,27 @@ package com.digital.signature.service;
 
 import com.digital.signature.config.TimeStampConfig;
 import jakarta.annotation.PostConstruct;
-import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigInteger;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
+import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Date;
+import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -28,6 +37,7 @@ import org.bouncycastle.asn1.x509.ExtendedKeyUsage;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.KeyPurposeId;
 import org.bouncycastle.asn1.x509.KeyUsage;
+import org.bouncycastle.cert.CertIOException;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaCertStore;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
@@ -36,12 +46,14 @@ import org.bouncycastle.cms.jcajce.JcaSignerInfoGeneratorBuilder;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.DigestCalculator;
 import org.bouncycastle.operator.DigestCalculatorProvider;
+import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
 import org.bouncycastle.tsp.TimeStampRequest;
 import org.bouncycastle.tsp.TimeStampResponse;
 import org.bouncycastle.tsp.TimeStampResponseGenerator;
 import org.bouncycastle.tsp.TimeStampTokenGenerator;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,174 +63,235 @@ import org.springframework.util.StringUtils;
 @Service
 public class TimestampService {
 
-    private static final Logger logger = LoggerFactory.getLogger(TimestampService.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(TimestampService.class);
 
-    private TimeStampResponseGenerator timeStampResponseGenerator;
-    private X509CertificateHolder signingCertificate;
+    private TimeStampResponseGenerator responseGen;
+    private X509CertificateHolder signCert;
 
-    @Autowired private TimeStampConfig config;
+    private final TimeStampConfig config;
+
+    @Autowired
+    public TimestampService(final TimeStampConfig config) {
+        this.config = config;
+    }
 
     @PostConstruct
     public void init() {
         try {
-            PrivateKey privateKey;
+            final PrivateKey privateKey = initPrivateKey();
 
-            // Check if PKCS12 keystore is configured
-            if (StringUtils.hasText(config.getKeystorePath())) {
-                logger.info(
-                        "Loading key and certificate from PKCS12 keystore: {}",
-                        config.getKeystorePath());
-
-                // Load PKCS12 keystore
-                KeyStore keystore = KeyStore.getInstance("PKCS12");
-                try (FileInputStream fis = new FileInputStream(config.getKeystorePath())) {
-                    keystore.load(fis, config.getKeystorePassword().toCharArray());
-                }
-
-                // Get private key
-                String keyPassword =
-                        StringUtils.hasText(config.getKeyPassword())
-                                ? config.getKeyPassword()
-                                : config.getKeystorePassword();
-
-                privateKey =
-                        (PrivateKey)
-                                keystore.getKey(config.getKeyAlias(), keyPassword.toCharArray());
-
-                if (privateKey == null) {
-                    throw new IllegalStateException(
-                            "Private key not found in keystore with alias: "
-                                    + config.getKeyAlias());
-                }
-
-                // Get certificate
-                Certificate cert = keystore.getCertificate(config.getKeyAlias());
-                if (cert == null) {
-                    throw new IllegalStateException(
-                            "Certificate not found in keystore with alias: "
-                                    + config.getKeyAlias());
-                }
-
-                // Convert X509Certificate to X509CertificateHolder
-                X509Certificate x509Cert = (X509Certificate) cert;
-                signingCertificate = new X509CertificateHolder(x509Cert.getEncoded());
-
-                logger.info("Successfully loaded key and certificate from keystore");
-                logger.info(
-                        "Certificate subject: {}", x509Cert.getSubjectX500Principal().getName());
-                logger.info(
-                        "Certificate valid from: {} to: {}",
-                        x509Cert.getNotBefore(),
-                        x509Cert.getNotAfter());
-            } else {
-                logger.info(
-                        "No keystore configured, generating new key pair and self-signed certificate");
-
-                // 1. Kulcspár generálás (RSA 2048) teszt célra
-                KeyPairGenerator keyPairGenerator =
-                        KeyPairGenerator.getInstance(config.getKeyAlgorithm());
-                keyPairGenerator.initialize(config.getKeySize());
-                KeyPair keyPair = keyPairGenerator.generateKeyPair();
-                privateKey = keyPair.getPrivate();
-
-                // 2. Önaláírt tanúsítvány generálás
-                X500Name subject = new X500Name(config.getCertificateSubject());
-                BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
-                Date notBefore = Date.from(Instant.now());
-                Date notAfter =
-                        Date.from(Instant.now().plus(config.getValidityDays(), ChronoUnit.DAYS));
-
-                JcaX509v3CertificateBuilder certBuilder =
-                        new JcaX509v3CertificateBuilder(
-                                subject, serial, notBefore, notAfter, subject, keyPair.getPublic());
-
-                // Kiterjesztések hozzáadása a szabványos timestampinghez
-                certBuilder.addExtension(
-                        Extension.basicConstraints, true, new BasicConstraints(false)); // Nem CA
-                certBuilder.addExtension(
-                        Extension.keyUsage,
-                        true,
-                        new KeyUsage(KeyUsage.digitalSignature | KeyUsage.nonRepudiation));
-                certBuilder.addExtension(
-                        Extension.extendedKeyUsage,
-                        true,
-                        new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
-
-                ContentSigner contentSigner =
-                        new JcaContentSignerBuilder(config.getSignatureAlgorithm())
-                                .build(privateKey);
-                signingCertificate = certBuilder.build(contentSigner);
-
-                logger.info("Generated new self-signed certificate");
-            }
-
-            // Create ContentSigner with the private key
-            ContentSigner contentSigner =
+            // TimeStampResponseGenerator inicializálása
+            final ContentSigner signer =
                     new JcaContentSignerBuilder(config.getSignatureAlgorithm()).build(privateKey);
 
-            // 3. TimeStampResponseGenerator inicializálás
-            ASN1ObjectIdentifier policyId = new ASN1ObjectIdentifier(config.getPolicyId());
-
-            DigestCalculatorProvider digestCalculatorProvider =
+            final DigestCalculatorProvider digestProvider =
                     new JcaDigestCalculatorProviderBuilder().build();
+            final SignerInfoGenerator signerInfoGen =
+                    new JcaSignerInfoGeneratorBuilder(digestProvider).build(signer, signCert);
 
-            // SignerInfoGenerator létrehozása
-            SignerInfoGenerator signerInfoGenerator =
-                    new JcaSignerInfoGeneratorBuilder(digestCalculatorProvider)
-                            .build(contentSigner, signingCertificate);
+            final DigestCalculator digestCalc =
+                    digestProvider.get(new AlgorithmIdentifier(OIWObjectIdentifiers.idSHA1));
 
-            // DigestCalculator létrehozása (SHA-1 a timestamp tokenhez)
-            DigestCalculator digestCalculator =
-                    digestCalculatorProvider.get(
-                            new AlgorithmIdentifier(OIWObjectIdentifiers.idSHA1));
-
-            TimeStampTokenGenerator tokenGenerator =
-                    new TimeStampTokenGenerator(signerInfoGenerator, digestCalculator, policyId);
+            final TimeStampTokenGenerator tokenGenerator =
+                    new TimeStampTokenGenerator(
+                            signerInfoGen,
+                            digestCalc,
+                            new ASN1ObjectIdentifier(config.getPolicyId()));
 
             // Tanúsítványok hozzáadása Store-ként
-            List<X509CertificateHolder> certs = new ArrayList<>();
-            certs.add(signingCertificate);
-            JcaCertStore certStore = new JcaCertStore(certs);
+            final List<X509CertificateHolder> certs = new ArrayList<>();
+            certs.add(signCert);
+            final JcaCertStore certStore = new JcaCertStore(certs);
             tokenGenerator.addCertificates(certStore);
 
-            Set<ASN1ObjectIdentifier> acceptedAlgorithms = new HashSet<>();
-            acceptedAlgorithms.add(NISTObjectIdentifiers.id_sha256);
-            acceptedAlgorithms.add(NISTObjectIdentifiers.id_sha512);
-            acceptedAlgorithms.add(OIWObjectIdentifiers.idSHA1);
+            final Set<ASN1ObjectIdentifier> algos = new HashSet<>();
+            algos.add(NISTObjectIdentifiers.id_sha256);
+            algos.add(NISTObjectIdentifiers.id_sha512);
+            algos.add(OIWObjectIdentifiers.idSHA1);
 
-            // A konstruktor Set<String>-et vár az algoritmus OID-khoz
-            Set<String> acceptedAlgorithmOids =
-                    acceptedAlgorithms.stream()
-                            .map(ASN1ObjectIdentifier::getId)
-                            .collect(Collectors.toSet());
+            final Set<String> algoOids =
+                    algos.stream().map(ASN1ObjectIdentifier::getId).collect(Collectors.toSet());
 
-            // Elfogadott policy-k definiálása
-            Set<String> acceptedPolicies = new HashSet<>();
-            acceptedPolicies.add(policyId.getId());
+            final Set<String> policies = new HashSet<>();
+            policies.add(config.getPolicyId());
 
-            timeStampResponseGenerator =
-                    new TimeStampResponseGenerator(
-                            tokenGenerator, acceptedAlgorithmOids, acceptedPolicies);
+            responseGen = new TimeStampResponseGenerator(tokenGenerator, algoOids, policies);
 
         } catch (Exception e) {
             throw new IllegalStateException("Failed to initialize TimestampService", e);
         }
     }
 
+    private PrivateKey initPrivateKey()
+            throws KeyStoreException,
+                    IOException,
+                    NoSuchAlgorithmException,
+                    CertificateException,
+                    UnrecoverableKeyException,
+                    OperatorCreationException {
+        final PrivateKey privateKey;
+
+        // Check if PKCS12 keystore is configured
+        if (StringUtils.hasText(config.getKeystorePath())) {
+            privateKey = initByKeystore();
+        } else {
+            privateKey = initWithGenerateKey();
+        }
+        return privateKey;
+    }
+
+    private PrivateKey initWithGenerateKey()
+            throws NoSuchAlgorithmException, CertIOException, OperatorCreationException {
+        final PrivateKey privateKey;
+        logGenerateNewCertificate(
+                "No keystore configured, generating new key pair and self-signed certificate");
+
+        // 1. Kulcspár generálás (RSA 2048) teszt célra
+        final KeyPairGenerator keyPairGenerator =
+                KeyPairGenerator.getInstance(config.getKeyAlgorithm());
+        keyPairGenerator.initialize(config.getKeySize());
+        final KeyPair keyPair = keyPairGenerator.generateKeyPair();
+        privateKey = keyPair.getPrivate();
+
+        // 2. Önaláírt tanúsítvány generálás
+        final X500Name subject = new X500Name(config.getCertificateSubject());
+        final BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
+        final Instant now = Instant.now();
+
+        final JcaX509v3CertificateBuilder certBuilder =
+                new JcaX509v3CertificateBuilder(
+                        subject,
+                        serial,
+                        Date.from(now),
+                        Date.from(now.plus(config.getValidityDays(), ChronoUnit.DAYS)),
+                        subject,
+                        keyPair.getPublic());
+
+        // Kiterjesztések hozzáadása a szabványos timestampinghez
+        certBuilder.addExtension(
+                Extension.basicConstraints, true, new BasicConstraints(false)); // Nem CA
+        certBuilder.addExtension(
+                Extension.keyUsage,
+                true,
+                new KeyUsage(KeyUsage.digitalSignature | KeyUsage.nonRepudiation));
+        certBuilder.addExtension(
+                Extension.extendedKeyUsage,
+                true,
+                new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
+
+        final ContentSigner contentSigner =
+                new JcaContentSignerBuilder(config.getSignatureAlgorithm()).build(privateKey);
+        signCert = certBuilder.build(contentSigner);
+
+        logGenerateNewCertificate("Generated new self-signed certificate");
+        return privateKey;
+    }
+
+    private static void logGenerateNewCertificate(final String msg) {
+        if (LOGGER.isInfoEnabled()) {
+            LOGGER.info(msg);
+        }
+    }
+
+    private @NonNull PrivateKey initByKeystore()
+            throws KeyStoreException,
+                    IOException,
+                    NoSuchAlgorithmException,
+                    CertificateException,
+                    UnrecoverableKeyException {
+        final PrivateKey privateKey;
+        // Validate required fields
+        checkConfig();
+
+        logKeystorePath();
+
+        // Load PKCS12 keystore
+        final KeyStore keystore = KeyStore.getInstance("PKCS12");
+        try (InputStream fis = Files.newInputStream(Paths.get(config.getKeystorePath()))) {
+            keystore.load(fis, config.getKeystorePassword().toCharArray());
+        }
+
+        // Get private key
+        final String keyPassword =
+                StringUtils.hasText(config.getKeyPassword())
+                        ? config.getKeyPassword()
+                        : config.getKeystorePassword();
+
+        privateKey = (PrivateKey) keystore.getKey(config.getKeyAlias(), keyPassword.toCharArray());
+
+        checkPrivateKey(privateKey);
+
+        // Get certificate
+        final Certificate cert = keystore.getCertificate(config.getKeyAlias());
+        checkCert(cert);
+
+        // Convert X509Certificate to X509CertificateHolder
+        final X509Certificate x509Cert = (X509Certificate) cert;
+        signCert = new X509CertificateHolder(x509Cert.getEncoded());
+
+        logCertInfo("Successfully loaded key and certificate from keystore", x509Cert);
+        return privateKey;
+    }
+
+    private void checkCert(final Certificate cert) {
+        if (cert == null) {
+            throw new IllegalStateException(
+                    "Certificate not found in keystore with alias: " + config.getKeyAlias());
+        }
+    }
+
+    private void checkPrivateKey(final PrivateKey privateKey) {
+        if (privateKey == null) {
+            throw new IllegalStateException(
+                    "Private key not found in keystore with alias: " + config.getKeyAlias());
+        }
+    }
+
+    private void checkConfig() {
+        if (config.getKeystorePassword() == null) {
+            throw new IllegalArgumentException("Keystore password cannot be null");
+        }
+        if (config.getKeyAlias() == null) {
+            throw new IllegalArgumentException("Key alias cannot be null");
+        }
+    }
+
+    private void logKeystorePath() {
+        if (LOGGER.isInfoEnabled()) {
+            LOGGER.info(
+                    "Loading key and certificate from PKCS12 keystore: {}",
+                    config.getKeystorePath());
+        }
+    }
+
+    private static void logCertInfo(final String msg, final X509Certificate x509Cert) {
+        if (LOGGER.isInfoEnabled()) {
+            LOGGER.info(msg);
+            LOGGER.info("Certificate subject: {}", x509Cert.getSubjectX500Principal().getName());
+            LOGGER.info(
+                    "Certificate valid from: {} to: {}",
+                    x509Cert.getNotBefore(),
+                    x509Cert.getNotAfter());
+        }
+    }
+
     /** Generate RFC 3161 timestamp response */
-    public byte[] generateTimestampResponse(byte[] requestBytes) {
+    public byte[] generateTimestampResponse(final byte[] requestBytes) {
+        if (requestBytes == null) {
+            throw new IllegalArgumentException("Request bytes cannot be null");
+        }
         try {
-            TimeStampRequest request = new TimeStampRequest(requestBytes);
+            final TimeStampRequest request = new TimeStampRequest(requestBytes);
 
-            // Itt lehetne validálni a request-et (pl. algoritmus, policy)
-
-            TimeStampResponse response =
-                    timeStampResponseGenerator.generate(
-                            request, BigInteger.valueOf(System.currentTimeMillis()), new Date());
+            final TimeStampResponse response =
+                    responseGen.generate(
+                            request,
+                            BigInteger.valueOf(System.currentTimeMillis()),
+                            Date.from(Instant.now()));
 
             return response.getEncoded();
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
+        } catch (org.bouncycastle.tsp.TSPException | IOException e) {
+            throw new IllegalStateException("Failed to generate timestamp response", e);
         }
     }
 
@@ -234,27 +307,27 @@ public class TimestampService {
 
     /** Get the current signing certificate in DER format */
     public byte[] getSigningCertificate() throws Exception {
-        if (signingCertificate == null) {
+        if (signCert == null) {
             throw new IllegalStateException("Signing certificate not initialized");
         }
-        return signingCertificate.getEncoded();
+        return signCert.getEncoded();
     }
 
     /** Get the current signing certificate in PEM format */
     public String getSigningCertificateAsPem() throws Exception {
-        byte[] derCertificate = getSigningCertificate();
+        final byte[] derCertificate = getSigningCertificate();
         return convertDerToPem(derCertificate);
     }
 
     /** Convert DER encoded certificate to PEM format */
-    private String convertDerToPem(byte[] derBytes) {
-        String base64 = java.util.Base64.getEncoder().encodeToString(derBytes);
-        // Wrap base64 content into 64-character lines
-        StringBuilder pem = new StringBuilder();
+    private String convertDerToPem(final byte[] derBytes) {
+        final String base64 = Base64.getEncoder().encodeToString(derBytes);
+        final int estimatedSize = base64.length() + 64; // Base64 + headers + newlines
+        final StringBuilder pem = new StringBuilder(estimatedSize);
         pem.append("-----BEGIN CERTIFICATE-----\n");
         for (int i = 0; i < base64.length(); i += 64) {
-            int end = Math.min(i + 64, base64.length());
-            pem.append(base64, i, end).append("\n");
+            final int end = Math.min(i + 64, base64.length());
+            pem.append(base64, i, end).append('\n');
         }
         pem.append("-----END CERTIFICATE-----");
         return pem.toString();
@@ -271,26 +344,33 @@ public class TimestampService {
      * @throws IllegalStateException if the key update fails due to internal error
      */
     public synchronized void updateSigningKey(
-            byte[] pkcs12Data, String keystorePassword, String keyPassword, String keyAlias) {
+            final byte[] pkcs12Data,
+            final String keystorePassword,
+            final String keyPassword,
+            final String keyAlias)
+            throws KeyStoreException,
+                    NoSuchAlgorithmException,
+                    CertificateException,
+                    UnrecoverableKeyException,
+                    OperatorCreationException,
+                    org.bouncycastle.tsp.TSPException,
+                    IOException {
         try {
-            logger.info("Updating signing key with new PKCS12 keystore");
+            logGenerateNewCertificate("Updating signing key with new PKCS12 keystore");
 
             // Load the new PKCS12 keystore
-            KeyStore newKeystore = KeyStore.getInstance("PKCS12");
-            newKeystore.load(
-                    new java.io.ByteArrayInputStream(pkcs12Data), keystorePassword.toCharArray());
+            final KeyStore newKeystore = KeyStore.getInstance("PKCS12");
+            try (java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream(pkcs12Data)) {
+                newKeystore.load(bais, keystorePassword.toCharArray());
+            }
 
-            // Use keystorePassword as default if keyPassword is not provided
-            String effectiveKeyPassword =
-                    keyPassword != null && !keyPassword.isEmpty() ? keyPassword : keystorePassword;
-
-            // Find the key alias if not provided
+            // Determine key alias to use
             String effectiveKeyAlias = keyAlias;
-            if (effectiveKeyAlias == null || effectiveKeyAlias.isEmpty()) {
+            if (!StringUtils.hasText(effectiveKeyAlias)) {
                 // Try to find the first private key entry
-                java.util.Enumeration<String> aliases = newKeystore.aliases();
+                final Enumeration<String> aliases = newKeystore.aliases();
                 while (aliases.hasMoreElements() && effectiveKeyAlias == null) {
-                    String alias = aliases.nextElement();
+                    final String alias = aliases.nextElement();
                     if (newKeystore.isKeyEntry(alias)) {
                         effectiveKeyAlias = alias;
                     }
@@ -302,84 +382,84 @@ public class TimestampService {
             }
 
             // Get private key
-            PrivateKey newPrivateKey =
-                    (PrivateKey)
-                            newKeystore.getKey(
-                                    effectiveKeyAlias, effectiveKeyPassword.toCharArray());
+            final String keyPwd = StringUtils.hasText(keyPassword) ? keyPassword : keystorePassword;
+            final PrivateKey newPrivateKey =
+                    (PrivateKey) newKeystore.getKey(effectiveKeyAlias, keyPwd.toCharArray());
             if (newPrivateKey == null) {
                 throw new IllegalArgumentException(
                         "Private key not found with alias: " + effectiveKeyAlias);
             }
 
             // Get certificate
-            Certificate newCert = newKeystore.getCertificate(effectiveKeyAlias);
+            final Certificate newCert = newKeystore.getCertificate(effectiveKeyAlias);
             if (newCert == null) {
                 throw new IllegalArgumentException(
                         "Certificate not found with alias: " + effectiveKeyAlias);
             }
 
             // Convert X509Certificate to X509CertificateHolder
-            X509Certificate x509Cert = (X509Certificate) newCert;
-            X509CertificateHolder newCertificateHolder =
+            final X509Certificate x509Cert = (X509Certificate) newCert;
+            final X509CertificateHolder newCertHolder =
                     new X509CertificateHolder(x509Cert.getEncoded());
 
-            logger.info("Successfully loaded new key and certificate from PKCS12");
-            logger.info("Certificate subject: {}", x509Cert.getSubjectX500Principal().getName());
-            logger.info(
-                    "Certificate valid from: {} to: {}",
-                    x509Cert.getNotBefore(),
-                    x509Cert.getNotAfter());
+            logCertInfo("Successfully loaded new key and certificate from PKCS12", x509Cert);
 
             // Update the TimeStampResponseGenerator with the new key and certificate
-            ContentSigner newContentSigner =
+            final ContentSigner newContentSigner =
                     new JcaContentSignerBuilder(config.getSignatureAlgorithm())
                             .build(newPrivateKey);
 
-            DigestCalculatorProvider digestCalculatorProvider =
+            final DigestCalculatorProvider digestProvider =
                     new JcaDigestCalculatorProviderBuilder().build();
-            SignerInfoGenerator newSignerInfoGenerator =
-                    new JcaSignerInfoGeneratorBuilder(digestCalculatorProvider)
-                            .build(newContentSigner, newCertificateHolder);
+            final SignerInfoGenerator signerInfoGen =
+                    new JcaSignerInfoGeneratorBuilder(digestProvider)
+                            .build(newContentSigner, newCertHolder);
 
-            DigestCalculator digestCalculator =
-                    digestCalculatorProvider.get(
-                            new AlgorithmIdentifier(OIWObjectIdentifiers.idSHA1));
+            final DigestCalculator digestCalc =
+                    digestProvider.get(new AlgorithmIdentifier(OIWObjectIdentifiers.idSHA1));
 
-            TimeStampTokenGenerator newTokenGenerator =
+            final TimeStampTokenGenerator newTokenGenerator =
                     new TimeStampTokenGenerator(
-                            newSignerInfoGenerator,
-                            digestCalculator,
+                            signerInfoGen,
+                            digestCalc,
                             new ASN1ObjectIdentifier(config.getPolicyId()));
 
             // Add certificates to store
-            List<X509CertificateHolder> certs = new ArrayList<>();
-            certs.add(newCertificateHolder);
-            JcaCertStore certStore = new JcaCertStore(certs);
+            final List<X509CertificateHolder> certs = new ArrayList<>();
+            certs.add(newCertHolder);
+            final JcaCertStore certStore = new JcaCertStore(certs);
             newTokenGenerator.addCertificates(certStore);
 
-            Set<ASN1ObjectIdentifier> acceptedAlgorithms = new HashSet<>();
-            acceptedAlgorithms.add(NISTObjectIdentifiers.id_sha256);
-            acceptedAlgorithms.add(NISTObjectIdentifiers.id_sha512);
-            acceptedAlgorithms.add(OIWObjectIdentifiers.idSHA1);
+            final Set<ASN1ObjectIdentifier> algos = new HashSet<>();
+            algos.add(NISTObjectIdentifiers.id_sha256);
+            algos.add(NISTObjectIdentifiers.id_sha512);
+            algos.add(OIWObjectIdentifiers.idSHA1);
 
-            Set<String> acceptedAlgorithmOids =
-                    acceptedAlgorithms.stream()
-                            .map(ASN1ObjectIdentifier::getId)
-                            .collect(Collectors.toSet());
+            final Set<String> algoOids =
+                    algos.stream().map(ASN1ObjectIdentifier::getId).collect(Collectors.toSet());
 
-            Set<String> acceptedPolicies = new HashSet<>();
-            acceptedPolicies.add(config.getPolicyId());
+            final Set<String> policies = new HashSet<>();
+            policies.add(config.getPolicyId());
 
-            timeStampResponseGenerator =
-                    new TimeStampResponseGenerator(
-                            newTokenGenerator, acceptedAlgorithmOids, acceptedPolicies);
+            responseGen = new TimeStampResponseGenerator(newTokenGenerator, algoOids, policies);
 
-            logger.info("Successfully updated TimeStampResponseGenerator with new signing key");
+            logGenerateNewCertificate(
+                    "Successfully updated TimeStampResponseGenerator with new signing key");
         } catch (IllegalArgumentException e) {
-            logger.warn("Invalid input for key update: {}", e.getMessage());
+            if (LOGGER.isWarnEnabled()) {
+                LOGGER.warn("Invalid input for key update: {}", e.getMessage());
+            }
             throw e; // Re-throw for ControllerAdvice to handle
-        } catch (Exception e) {
-            logger.error("Failed to update signing key", e);
+        } catch (KeyStoreException
+                | NoSuchAlgorithmException
+                | CertificateException
+                | UnrecoverableKeyException
+                | OperatorCreationException
+                | org.bouncycastle.tsp.TSPException
+                | IOException e) {
+            if (LOGGER.isErrorEnabled()) {
+                LOGGER.error("Failed to update signing key: {}", e.getMessage());
+            }
             throw new IllegalStateException("Failed to update signing key: " + e.getMessage(), e);
         }
     }

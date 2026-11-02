@@ -11,11 +11,18 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 public class ErrorHandlerController extends ResponseEntityExceptionHandler {
 
-    private static final Logger logger = LoggerFactory.getLogger(ErrorHandlerController.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(ErrorHandlerController.class);
+
+    public ErrorHandlerController() {
+        // Default constructor
+    }
 
     @ExceptionHandler(Exception.class)
-    ProblemDetail handleGlobalException(Exception e) {
-        logger.error("An unexpected error occurred", e);
-        return ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+    public ProblemDetail handleGlobalException(final Exception exception) {
+        if (LOGGER.isErrorEnabled()) {
+            LOGGER.error("An unexpected error occurred: {}", exception.getMessage());
+        }
+        return ProblemDetail.forStatusAndDetail(
+                HttpStatus.INTERNAL_SERVER_ERROR, exception.getMessage());
     }
 }
