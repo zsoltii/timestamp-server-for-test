@@ -97,6 +97,44 @@ class TimestampServiceUpdateKeyTest extends AbstractTest {
     }
 
     @Test
+    void updateSigningKey_shouldExposeNewCertificate_whenValidPkcs12Provided() throws Exception {
+        // Arrange - capture the certificate exposed before the update, and what the new
+        // certificate's encoded bytes are expected to be
+        byte[] certificateBeforeUpdate = timestampService.getSigningCertificate();
+
+        KeyStore newKeystore = KeyStore.getInstance("PKCS12");
+        try (java.io.ByteArrayInputStream bais =
+                new java.io.ByteArrayInputStream(originalPkcs12Data)) {
+            newKeystore.load(bais, originalKeystorePassword.toCharArray());
+        }
+        byte[] expectedCertificate = newKeystore.getCertificate(originalKeyAlias).getEncoded();
+
+        // Act
+        timestampService.updateSigningKey(
+                originalPkcs12Data,
+                originalKeystorePassword,
+                originalKeyPassword,
+                originalKeyAlias);
+
+        // Assert - getSigningCertificate()/getSigningCertificateAsPem() must reflect the
+        // newly loaded certificate, not the one that was active before the update.
+        byte[] certificateAfterUpdate = timestampService.getSigningCertificate();
+        assertThat(certificateAfterUpdate)
+                .isEqualTo(expectedCertificate)
+                .isNotEqualTo(certificateBeforeUpdate);
+
+        String pem = timestampService.getSigningCertificateAsPem();
+        byte[] decodedFromPem =
+                java.util.Base64.getDecoder()
+                        .decode(
+                                pem.replace("-----BEGIN CERTIFICATE-----", "")
+                                        .replace("-----END CERTIFICATE-----", "")
+                                        .replace("\n", "")
+                                        .trim());
+        assertThat(decodedFromPem).isEqualTo(expectedCertificate);
+    }
+
+    @Test
     void updateSigningKey_shouldThrowException_whenInvalidPasswordProvided() {
         // Act & Assert
         assertThatThrownBy(

@@ -442,6 +442,7 @@ public class TimestampService {
             policies.add(config.getPolicyId());
 
             responseGen = new TimeStampResponseGenerator(newTokenGenerator, algoOids, policies);
+            signCert = newCertHolder;
 
             logGenerateNewCertificate(
                     "Successfully updated TimeStampResponseGenerator with new signing key");
