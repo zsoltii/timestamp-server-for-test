@@ -201,6 +201,18 @@ Run PKCS12 key update tests:
 ./mvnw test -Dtest=TimestampControllerUpdateKeyTest
 ```
 
+### Cucumber (BDD) Tests
+
+Behaviour-driven scenarios live in `src/test/resources/features/*.feature`, the step definitions in
+`src/test/java/com/digital/signature/cucumber/steps`. They start the application on a random port and call the
+real HTTP endpoints (including a genuine RFC 3161 request). Run only these:
+
+```bash
+./mvnw test -Dtest=RunCucumberTest
+```
+
+The HTML report is written to `target/cucumber-reports/cucumber.html`.
+
 ### Manual Testing with KEAASZ
 
 The application has been manually tested with the KEAASZ (Kormányzati Elektronikus Aláíró és Aláírás-ellenőrző
