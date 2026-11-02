@@ -1,0 +1,52 @@
+# Multi-stage build for a regular JVM image (faster/simpler alternative to
+# the native image built by the default Dockerfile; no GraalVM required).
+FROM eclipse-temurin:25-jdk AS builder
+
+WORKDIR /app
+
+# Copy Maven wrapper and pom.xml first so dependency resolution is cached
+# as a separate layer when only the source code changes.
+COPY mvnw pom.xml ./
+COPY .mvn .mvn/
+RUN ./mvnw -q -DskipTests dependency:go-offline
+
+# Copy source code and build the executable jar
+COPY src src/
+RUN ./mvnw -q -DskipTests clean package
+
+# Extract the layered jar so its contents can be copied in cache-friendly
+# layers (dependencies change far less often than application classes).
+RUN java -Djarmode=tools -jar target/timestamp-server.jar extract --layers --destination extracted
+
+# Final stage - slim JRE image
+FROM eclipse-temurin:25-jre-alpine
+
+WORKDIR /app
+
+# Create non-root user
+RUN adduser -D -s /bin/sh appuser && \
+    mkdir -p /app/config && \
+    chown -R appuser:appuser /app
+
+# Layer with the (rarely changing) third-party dependency jars first, so Docker
+# can cache it across builds where only application code changed.
+COPY --from=builder --chown=appuser:appuser /app/extracted/dependencies/lib/ ./lib/
+COPY --from=builder --chown=appuser:appuser /app/extracted/snapshot-dependencies/ ./
+COPY --from=builder --chown=appuser:appuser /app/extracted/application/timestamp-server.jar ./timestamp-server.jar
+
+USER appuser
+
+# Expose port
+EXPOSE 8080
+
+# Set Spring profile for Docker
+ENV SPRING_PROFILES_ACTIVE=docker
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1
+
+# The application jar's manifest Class-Path points at ./lib/*.jar, so a plain
+# -jar launch is all that's needed (no spring-boot-loader/JarLauncher involved).
+ENTRYPOINT ["java", "-jar", "timestamp-server.jar", \
+    "--spring.config.location=classpath:/,classpath:/config/,file:/app/config/"]

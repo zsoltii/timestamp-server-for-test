@@ -1,0 +1,13 @@
+target/
+.idea/
+.vscode/
+*.iml
+.git/
+.gitignore
+*.md
+Dockerfile*
+docker-compose.yml
+checkstyle-suppressions.xml
+pmd-custom-ruleset.xml
+*.p12
+*.jks

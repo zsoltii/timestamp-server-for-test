@@ -77,16 +77,31 @@ The following actuator endpoints are exposed:
 
 ## Docker Support
 
-### Build Docker Image:
+Two Docker image flavors are available:
+
+- **`Dockerfile`** (default) - builds a GraalVM **native image**. Smaller, faster-starting
+  container, but the build itself is slow and needs more memory.
+- **`Dockerfile.jvm`** - builds a regular **JVM image** using a layered jar. Builds much faster
+  and needs no GraalVM, at the cost of a slightly larger image and JVM startup time.
+
+### Build Docker Image (native, default):
 
 ```bash
 docker build -t timestamp-server .
+```
+
+### Build Docker Image (JVM alternative):
+
+```bash
+docker build -f Dockerfile.jvm -t timestamp-server:jvm .
 ```
 
 ### Run with Docker:
 
 ```bash
 docker run -p 8080:8080 timestamp-server
+# or, for the JVM image:
+docker run -p 8080:8080 timestamp-server:jvm
 ```
 
 ### Docker Configuration Options
@@ -113,8 +128,11 @@ Configuration files in `/app/config/` take precedence over classpath settings.
 #### Using Docker Compose
 
 ```bash
-# Start the service
+# Start the service (native image, default)
 docker compose up -d
+
+# Start the JVM image instead
+docker compose --profile jvm up -d timestamp-server-jvm
 
 # View logs
 docker compose logs -f
