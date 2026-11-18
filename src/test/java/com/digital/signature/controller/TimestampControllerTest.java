@@ -7,12 +7,14 @@ import static org.mockito.Mockito.*;
 
 import com.digital.signature.AbstractTest;
 import com.digital.signature.service.TimestampService;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 
 class TimestampControllerTest extends AbstractTest {
 
@@ -135,5 +137,107 @@ class TimestampControllerTest extends AbstractTest {
         assertThatThrownBy(() -> timestampController.getSigningCertificate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Certificate not initialized");
+    }
+
+    @Test
+    void handleCustomTimeTimestampQuery_shouldUseParsedTime_whenTimeIsGiven() throws Exception {
+        // Arrange
+        final Instant time = Instant.parse("2020-01-31T12:30:00Z");
+        final byte[] requestBytes = "mock-request".getBytes();
+        final byte[] responseBytes = "mock-response".getBytes();
+        when(timestampService.parseTimestampTime("2020-01-31 14:30:00+0200")).thenReturn(time);
+        when(timestampService.generateTimestampResponse(requestBytes, time))
+                .thenReturn(responseBytes);
+
+        // Act
+        ResponseEntity<byte[]> response =
+                timestampController.handleCustomTimeTimestampQuery(
+                        requestBytes, "2020-01-31 14:30:00+0200");
+
+        // Assert
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody()).isEqualTo(responseBytes);
+        assertThat(response.getHeaders().getContentType()).isNotNull();
+        assertThat(response.getHeaders().getContentType().toString())
+                .isEqualTo("application/timestamp-reply");
+        assertThat(response.getHeaders().getFirst("X-Timestamp-Time"))
+                .isEqualTo("2020-01-31T12:30:00Z");
+    }
+
+    @Test
+    void handleCustomTimeTimestampQuery_shouldReturnBadRequest_whenTimeIsInvalid() {
+        // Arrange
+        when(timestampService.parseTimestampTime("nonsense"))
+                .thenThrow(new IllegalArgumentException("Invalid time 'nonsense'"));
+
+        // Act & Assert
+        assertThatThrownBy(
+                        () ->
+                                timestampController.handleCustomTimeTimestampQuery(
+                                        "mock-request".getBytes(), "nonsense"))
+                .isInstanceOfSatisfying(
+                        ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode().value()).isEqualTo(400));
+        verify(timestampService, never()).generateTimestampResponse(any(), any());
+    }
+
+    @Test
+    void getFixedTime_shouldReturnIsoTime_whenFixedTimeIsSet() {
+        when(timestampService.getFixedTime()).thenReturn(Instant.parse("2020-01-31T12:30:00Z"));
+
+        ResponseEntity<String> response = timestampController.getFixedTime();
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody()).isEqualTo("2020-01-31T12:30:00Z");
+    }
+
+    @Test
+    void getFixedTime_shouldReturnNoContent_whenFixedTimeIsNotSet() {
+        when(timestampService.getFixedTime()).thenReturn(null);
+
+        ResponseEntity<String> response = timestampController.getFixedTime();
+
+        assertThat(response.getStatusCode().value()).isEqualTo(204);
+        assertThat(response.getBody()).isNull();
+    }
+
+    @Test
+    void updateFixedTime_shouldReturnIsoTime_whenTimeIsValid() {
+        when(timestampService.updateFixedTime("2020-01-31 14:30:00+0200"))
+                .thenReturn(Instant.parse("2020-01-31T12:30:00Z"));
+
+        ResponseEntity<String> response =
+                timestampController.updateFixedTime("2020-01-31 14:30:00+0200");
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody()).isEqualTo("2020-01-31T12:30:00Z");
+    }
+
+    @Test
+    void updateFixedTime_shouldReturnNoContent_whenTimeIsEmpty() {
+        when(timestampService.updateFixedTime("")).thenReturn(null);
+
+        ResponseEntity<String> response = timestampController.updateFixedTime("");
+
+        assertThat(response.getStatusCode().value()).isEqualTo(204);
+    }
+
+    @Test
+    void updateFixedTime_shouldReturnBadRequest_whenTimeIsInvalid() {
+        when(timestampService.updateFixedTime("nonsense"))
+                .thenThrow(new IllegalArgumentException("Invalid time 'nonsense'"));
+
+        assertThatThrownBy(() -> timestampController.updateFixedTime("nonsense"))
+                .isInstanceOfSatisfying(
+                        ResponseStatusException.class,
+                        e -> assertThat(e.getStatusCode().value()).isEqualTo(400));
+    }
+
+    @Test
+    void clearFixedTime_shouldClearAndReturnNoContent() {
+        ResponseEntity<String> response = timestampController.clearFixedTime();
+
+        assertThat(response.getStatusCode().value()).isEqualTo(204);
+        verify(timestampService).updateFixedTime(null);
     }
 }

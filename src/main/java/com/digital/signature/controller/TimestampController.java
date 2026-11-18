@@ -1,16 +1,22 @@
 package com.digital.signature.controller;
 
 import com.digital.signature.service.TimestampService;
+import java.time.Instant;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/timestamp")
 public class TimestampController {
+
+    private static final String TIMESTAMP_QUERY = "application/timestamp-query";
+    private static final String TIMESTAMP_REPLY = "application/timestamp-reply";
 
     private final TimestampService timestampService;
 
@@ -23,15 +29,88 @@ public class TimestampController {
      * Handle RFC 3161 Timestamp Query Content-Type: application/timestamp-query Returns:
      * application/timestamp-reply
      */
-    @PostMapping(consumes = "application/timestamp-query", produces = "application/timestamp-reply")
+    @PostMapping(consumes = TIMESTAMP_QUERY, produces = TIMESTAMP_REPLY)
     public ResponseEntity<byte[]> handleTimestampQuery(@RequestBody final byte[] requestBytes)
             throws java.io.IOException, org.bouncycastle.tsp.TSPException {
         final byte[] responseBytes = timestampService.generateTimestampResponse(requestBytes);
 
         final HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType("application/timestamp-reply"));
+        headers.setContentType(MediaType.parseMediaType(TIMESTAMP_REPLY));
 
         return ResponseEntity.ok().headers(headers).body(responseBytes);
+    }
+
+    /**
+     * Handle RFC 3161 Timestamp Query with a caller supplied time, which may be in the past or in
+     * the future. Content-Type: application/timestamp-query Returns: application/timestamp-reply
+     *
+     * @param requestBytes the DER encoded timestamp request
+     * @param time the time to stamp in {@code yyyy-MM-dd HH:mm:ssZ} format (UTC when no zone is
+     *     given), the current time when empty
+     * @return the timestamp response, the used time is also returned in the {@code
+     *     X-Timestamp-Time} header
+     * @throws ResponseStatusException with status 400 if the time is not valid
+     */
+    @PostMapping(value = "/custom", consumes = TIMESTAMP_QUERY, produces = TIMESTAMP_REPLY)
+    public ResponseEntity<byte[]> handleCustomTimeTimestampQuery(
+            @RequestBody final byte[] requestBytes,
+            @RequestParam(value = "time", required = false) final String time) {
+        final Instant genTime;
+        try {
+            genTime = timestampService.parseTimestampTime(time);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+        final byte[] responseBytes =
+                timestampService.generateTimestampResponse(requestBytes, genTime);
+
+        final HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(TIMESTAMP_REPLY));
+        headers.set("X-Timestamp-Time", genTime.toString());
+
+        return ResponseEntity.ok().headers(headers).body(responseBytes);
+    }
+
+    /**
+     * Get the fixed time written into every timestamp
+     *
+     * @return the fixed time in ISO 8601 (UTC), or 204 No Content when the current time is used
+     */
+    @GetMapping("/fixed-time")
+    public ResponseEntity<String> getFixedTime() {
+        return fixedTimeResponse(timestampService.getFixedTime());
+    }
+
+    /**
+     * Set the fixed time written into every timestamp made by {@code POST /api/timestamp}. The
+     * setting is kept in memory only.
+     *
+     * @param time the time in {@code yyyy-MM-dd HH:mm:ssZ} format (UTC when no zone is given, the
+     *     zone can be an offset, an abbreviation like CEST or a region id like Europe/Budapest),
+     *     empty clears the fixed time so the current time is used
+     * @return the fixed time in ISO 8601 (UTC), or 204 No Content when it has been cleared
+     * @throws ResponseStatusException with status 400 if the time is not valid
+     */
+    @PutMapping("/fixed-time")
+    public ResponseEntity<String> updateFixedTime(
+            @RequestParam(value = "time", required = false) final String time) {
+        try {
+            return fixedTimeResponse(timestampService.updateFixedTime(time));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+    }
+
+    /** Clear the fixed time, the current time is used again */
+    @DeleteMapping("/fixed-time")
+    public ResponseEntity<String> clearFixedTime() {
+        return fixedTimeResponse(timestampService.updateFixedTime(null));
+    }
+
+    private static ResponseEntity<String> fixedTimeResponse(final Instant fixedTime) {
+        return fixedTime == null
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.ok(fixedTime.toString());
     }
 
     /** Get current timestamp in simple format (ISO 8601) */

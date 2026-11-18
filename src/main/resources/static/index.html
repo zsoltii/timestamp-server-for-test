@@ -96,6 +96,50 @@
   <div id="cert-result" class="result"></div>
 </section>
 
+<h2>Rögzített időbélyeg-időpont</h2>
+<section>
+  <p class="note">
+    Ha itt időpont van beállítva, a szabványos időbélyeg-kérések (<code>POST /api/timestamp</code>) mindegyike ezt az
+    időpontot kapja, a múltban vagy a jövőben is lehet. Formátum: <code>yyyy-MM-dd HH:mm:ssZ</code> (24 órás), pl.
+    <code>2020-01-31 14:30:00+0200</code>; időzóna nélkül UTC. Az időzóna lehet eltolás (<code>Z</code>,
+    <code>+0200</code>, <code>+02:00</code>), rövidítés (<code>UTC</code>, <code>CET</code>, <code>CEST</code>,
+    <code>EET</code>, <code>EEST</code>&hellip;) vagy régió (<code>Europe/Budapest</code>), a dátum és az idő közé
+    <code>T</code> is írható. Üres érték mentése visszaáll az aktuális időre. A
+    beállítás csak memóriában él, a szerver újraindításakor törlődik.
+  </p>
+  <form id="fixed-time-form">
+    <label for="fixedTime">Időpont (üres: aktuális idő)</label>
+    <input type="text" id="fixedTime" placeholder="2020-01-31 14:30:00+0200" />
+    <div class="row">
+      <button type="submit">Mentés</button>
+      <button type="button" id="fixed-time-clear">Törlés (aktuális idő)</button>
+    </div>
+  </form>
+  <div id="fixed-time-result" class="result"></div>
+</section>
+
+<h2>Időbélyeg tetszőleges időponttal</h2>
+<section>
+  <p class="note">
+    Egyszeri időbélyeg-válasz letöltése, a rögzített időponttól függetlenül. RFC 3161 időbélyeg-válasz (<code>.tsr</code>) készítése egy fájlhoz vagy hash-hez, a múltban vagy a jövőben lévő
+    időponttal. Formátum: <code>yyyy-MM-dd HH:mm:ssZ</code> (24 órás), pl. <code>2020-01-31 14:30:00+0200</code>.
+    Ha nincs időzóna megadva, UTC (az időzóna megadási módjai fent, a rögzített időpontnál); ha az időpont üres, az aktuális idő kerül be.
+  </p>
+  <form id="custom-time-form">
+    <label for="ctFile">Fájl (a SHA-256 hash-ét a böngésző számolja)</label>
+    <input type="file" id="ctFile" />
+
+    <label for="ctHash">&hellip;vagy SHA-256 hash (64 hexa karakter)</label>
+    <input type="text" id="ctHash" placeholder="pl. e3b0c44298fc1c149afbf4c8996fb924..." />
+
+    <label for="ctTime">Időpont (opcionális)</label>
+    <input type="text" id="ctTime" placeholder="2020-01-31 14:30:00+0200" />
+
+    <button type="submit">Időbélyeg-válasz letöltése (.tsr)</button>
+  </form>
+  <div id="custom-time-result" class="result"></div>
+</section>
+
 <h2>Aláíró kulcs csere</h2>
 <section>
   <form id="update-key-form">
@@ -154,6 +198,109 @@
   document.querySelectorAll("button[data-action]").forEach((btn) => {
     btn.addEventListener("click", () => handleAction(btn.dataset.action));
   });
+
+  // DER encoded TimeStampReq (RFC 3161): version 1, SHA-256 message imprint, certReq TRUE.
+  const SHA256_REQUEST_PREFIX = [
+    0x30, 0x39, 0x02, 0x01, 0x01, 0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65,
+    0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20,
+  ];
+  const REQUEST_CERT_REQ = [0x01, 0x01, 0xff];
+
+  function hexToBytes(hex) {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+    }
+    return bytes;
+  }
+
+  function buildTimestampQuery(digest) {
+    return new Uint8Array([...SHA256_REQUEST_PREFIX, ...digest, ...REQUEST_CERT_REQ]);
+  }
+
+  async function problemMessage(res) {
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text);
+      return json.detail || json.message || text;
+    } catch (_) {
+      return text;
+    }
+  }
+
+  document.getElementById("custom-time-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const file = document.getElementById("ctFile").files[0];
+    const hash = document.getElementById("ctHash").value.trim();
+    const time = document.getElementById("ctTime").value.trim();
+    const target = "custom-time-result";
+
+    try {
+      let digest;
+      if (file) {
+        digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await file.arrayBuffer()));
+      } else if (/^[0-9a-fA-F]{64}$/.test(hash)) {
+        digest = hexToBytes(hash);
+      } else {
+        showResult(target, false, "Válassz fájlt, vagy adj meg 64 hexa karakteres SHA-256 hash-t.");
+        return;
+      }
+
+      const url = API + "/custom" + (time ? "?time=" + encodeURIComponent(time) : "");
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/timestamp-query" },
+        body: buildTimestampQuery(digest),
+      });
+      if (!res.ok) {
+        showResult(target, false, await problemMessage(res));
+        return;
+      }
+
+      const blob = await res.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = (file ? file.name : "timestamp") + ".tsr";
+      link.click();
+      URL.revokeObjectURL(link.href);
+      showResult(target, true, "Időbélyeg kész, időpont (UTC): " + res.headers.get("X-Timestamp-Time"));
+    } catch (e) {
+      showResult(target, false, "Kérés sikertelen: " + e);
+    }
+  });
+
+  function describeFixedTime(res, text) {
+    if (!res.ok) {
+      return text;
+    }
+    return res.status === 204
+      ? "Nincs rögzített időpont, az aktuális idő kerül az időbélyegbe."
+      : "Rögzített időpont (UTC): " + text;
+  }
+
+  async function sendFixedTime(method, query) {
+    const target = "fixed-time-result";
+    try {
+      const res = await fetch(API + "/fixed-time" + (query || ""), { method });
+      const text = res.ok ? await res.text() : await problemMessage(res);
+      showResult(target, res.ok, describeFixedTime(res, text));
+    } catch (e) {
+      showResult(target, false, "Kérés sikertelen: " + e);
+    }
+  }
+
+  document.getElementById("fixed-time-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const time = document.getElementById("fixedTime").value.trim();
+    sendFixedTime("PUT", "?time=" + encodeURIComponent(time));
+  });
+
+  document.getElementById("fixed-time-clear").addEventListener("click", () => {
+    document.getElementById("fixedTime").value = "";
+    sendFixedTime("DELETE");
+  });
+
+  sendFixedTime("GET");
 
   document.getElementById("update-key-form").addEventListener("submit", async (event) => {
     event.preventDefault();
