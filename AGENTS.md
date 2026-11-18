@@ -52,8 +52,13 @@
 ### Testing
 - JUnit 5 with `@Test` annotation
 - AssertJ assertions (`assertThat`)
-- Test positive and negative cases
-- Use `@SpringBootTest` for integration tests
+- **Always write both positive and negative JUnit unit tests** for every new or changed method
+  (valid input and the expected result, plus invalid input, null/blank values and error paths)
+- Unit tests are plain JUnit/Mockito tests that build the class under test directly
+  (e.g. `new TimestampService(config)`), without a Spring context. `@SpringBootTest` tests are
+  integration tests: they may be added on top, but never replace the unit tests
+- Cucumber scenarios (`src/test/resources/features`) are additional usage examples, not a
+  substitute for unit tests
 - Test error conditions and edge cases
 - Descriptive test method names
 
