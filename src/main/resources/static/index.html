@@ -89,7 +89,7 @@
 <section>
   <div class="row">
     <button type="button" data-action="cert-pem">Tanúsítvány (PEM) megtekintése</button>
-    <a href="/api/timestamp/certificate" download="signing-certificate.cer">
+    <a href="./api/timestamp/certificate" download="signing-certificate.cer">
       <button type="button">Tanúsítvány letöltése (DER)</button>
     </a>
   </div>
@@ -161,7 +161,7 @@
 </section>
 
 <script>
-  const API = "/api/timestamp";
+  const API = "./api/timestamp";
 
   function showResult(targetId, ok, text) {
     const el = document.getElementById(targetId);

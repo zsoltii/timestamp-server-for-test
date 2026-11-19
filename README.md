@@ -116,7 +116,12 @@ Open `http://localhost:8080/` for the [web UI](#web-ui).
 | **Időbélyeg tetszőleges időponttal** (one-off) | Pick a file (its SHA-256 is computed in the browser, the file is not uploaded) or paste a SHA-256 hash, optionally enter a time, and the `.tsr` response is downloaded. |
 | **Aláíró kulcs csere** (key update)        | Uploads a PKCS12 file and replaces the signing key (see [Signing key and certificate](#signing-key-and-certificate)). |
 
-The page talks to the REST API below; everything it does can also be done with `curl`.
+The page uses relative API URLs, so it also works under a context path behind a reverse proxy.
+If the UI is published under `/timestamp`, open `/timestamp/` (with the trailing slash) and
+proxy that whole path, including `/timestamp/api/timestamp/...`, to the application.
+No separate proxy rules are needed for individual API endpoints.
+
+Everything the page does can also be done with `curl`.
 
 ## REST API reference
 
