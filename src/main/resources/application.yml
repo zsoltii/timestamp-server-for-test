@@ -19,7 +19,7 @@ management:
 timestamp:
   key-algorithm: RSA
   key-size: 2048
-  signature-algorithm: SHA256WithRSA
+  signature-algorithm: auto
   certificate-subject: CN=Test Timestamp Authority, O=Digital Signature, C=HU
   policy-id: 1.3.6.1.4.1.13762.3
   validity-days: 365

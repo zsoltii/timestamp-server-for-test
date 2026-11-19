@@ -18,6 +18,8 @@ documents with a time **in the past or in the future**.
 6. [Controlling the time of the timestamps](#controlling-the-time-of-the-timestamps)
 7. [Using the server from a signing application](#using-the-server-from-a-signing-application)
 8. [Signing key and certificate](#signing-key-and-certificate)
+   - [Create an uploadable PKCS12 keystore](#create-an-uploadable-pkcs12-keystore)
+   - [Verify and upload the keystore](#verify-and-upload-the-keystore)
 9. [Configuration reference](#configuration-reference)
 10. [Error handling](#error-handling)
 11. [Docker](#docker)
@@ -87,7 +89,7 @@ Open `http://localhost:8080/` for the [web UI](#web-ui).
                                                              │       fixed time (if set) or current time
                                                              │  2. BouncyCastle TimeStampResponseGenerator
                                                              │     builds the token and signs it with the
-                                                             │     signing key (SHA256WithRSA by default)
+                                                             │     signing key (algorithm selected from the key by default)
   ◀─────────────  200 application/timestamp-reply            ▼
   body: DER TimeStampResp                                 signing key + certificate (in memory)
 ```
@@ -287,18 +289,109 @@ Three ways to provide the signing key:
 3. **PKCS12 upload at runtime.** `POST /api/timestamp/update-key` (or the web UI) replaces the key and the certificate
    without a restart. The update is in memory only; after a restart the configured or generated key is used again.
 
-```bash
-# generate a test keystore (helper class in the test sources)
-./mvnw exec:java -Dexec.mainClass="com.digital.signature.util.TestKeystoreGenerator" \
-  -Dexec.args="test-keystore.p12 testPassword testKey keyPassword"
+With `timestamp.signature-algorithm=auto` (the default), the server selects the timestamp signature algorithm
+from the private key at startup and after each upload. PKCS12 signing keys supported on JDK 25 include RSA,
+RSA-PSS, EC (ECDSA), DSA, Ed25519, Ed448 and ML-DSA-44/65/87. An RSA key still defaults to `SHA256withRSA`.
+The uploaded certificate still needs the critical `id-kp-timeStamping` EKU. Timestamp verifiers must support
+the selected signature algorithm. PKCS11 and key-agreement-only keys are not supported by this upload.
+If an existing deployment explicitly sets a signature algorithm, remove that override or change it to `auto`
+to allow switching between key types without restarting.
 
-# update the signing key
-curl -X POST "http://localhost:8080/api/timestamp/update-key" \
-  -F "file=@test-keystore.p12" \
-  -F "keystorePassword=testPassword" \
-  -F "keyPassword=keyPassword" \
-  -F "keyAlias=testKey"
+### Create an uploadable PKCS12 keystore
+
+The `.p12` or `.pfx` must contain a **private-key entry** and its matching X.509 v3 signer certificate.
+The certificate's **Extended Key Usage (EKU)** must be **critical** and contain **only** Time Stamping
+(`1.3.6.1.5.5.7.3.8`). This is separate from **Key Usage (KU)**. To match the server's generated test
+certificate, use `digitalSignature` and `nonRepudiation` for KU and set Basic Constraints to non-CA.
+The following examples create self-signed certificates for local testing.
+
+#### KeyStore Explorer 5.7
+
+1. Select **File > New**, choose **PKCS #12**, then select **Tools > Generate Key Pair**. Choose RSA
+   (2048 bits or more) or EC (for example P-256).
+2. In **Generate Key Pair Certificate**, select **Version 3**, fill in the certificate details, and
+   click **Add Extensions**.
+3. Click **Add**. In **Add Extension Type**, select **Extended Key Usage** and check **Critical
+   Extension** before clicking **OK**. In the **Extended Key Usage Extension (EKU)** dialog, select
+   only **Time Stamping** and click **OK**.
+4. If **Extended Key Usage** is missing from the **Add Extension Type** list, it has already been
+   added. Click **Cancel**, select the existing **Extended Key Usage** row in **Add Certificate
+   Extensions**, and use **Toggle Criticality** if the row is not already critical. Use **Edit** on
+   that row to confirm that **Time Stamping** is its only value.
+5. To match the built-in certificate, add critical **Key Usage** with **Digital Signature** and
+   **Non-repudiation**, and critical **Basic Constraints** with **Subject is a CA** unchecked.
+6. Finish generating the entry, give it the alias `tsa`, and save the keystore as `test-tsa.p12`.
+   To export just one entry from an existing keystore, right-click it and select **Export > Export
+   Key Pair**, then supply the PKCS #12 export password.
+
+If you need to keep an existing private key, right-click its entry and choose **Generate CSR**.
+Have the issuer create a **new** certificate with the critical, Time Stamping-only EKU, then use
+**Import CA Reply** on the original entry and save or export it. If you have your own test CA in
+KeyStore Explorer, use **Sign > Sign CSR** on the CA entry and set the EKU under **Add Extensions**
+when issuing the certificate. Changing the EKU in an already signed certificate is not possible
+without reissuing it; exporting it again does not change the flag.
+
+#### OpenSSL
+
+Generate a password-protected RSA private key and self-signed test certificate, then package them
+under alias `tsa`. OpenSSL prompts for the private-key passphrase and the PKCS12 export password.
+
+```bash
+openssl req -new -x509 -newkey rsa:2048 -sha256 -days 365 \
+  -subj '/CN=Test Timestamp Authority' \
+  -addext 'basicConstraints=critical,CA:FALSE' \
+  -addext 'keyUsage=critical,digitalSignature,nonRepudiation' \
+  -addext 'extendedKeyUsage=critical,timeStamping' \
+  -keyout tsa-key.pem -out tsa-cert.pem
+
+openssl pkcs12 -export -name tsa \
+  -inkey tsa-key.pem -in tsa-cert.pem -out test-tsa.p12
 ```
+
+For EC, replace `-newkey rsa:2048` with `-newkey ec -pkeyopt ec_paramgen_curve:prime256v1`.
+Keep the private-key file and the PKCS12 file out of version control.
+
+#### Java `keytool`
+
+Generate the key and self-signed certificate directly into the keystore. `keytool` prompts for the
+keystore password.
+
+```bash
+keytool -genkeypair -storetype PKCS12 -keystore test-tsa.p12 -alias tsa \
+  -keyalg RSA -keysize 2048 -sigalg SHA256withRSA -validity 365 \
+  -dname 'CN=Test Timestamp Authority' \
+  -ext 'BC:critical=ca:false' \
+  -ext 'KU:critical=digitalSignature,nonRepudiation' \
+  -ext 'EKU:critical=timeStamping'
+```
+
+### Verify and upload the keystore
+
+```bash
+keytool -list -v -storetype PKCS12 -keystore test-tsa.p12 -alias tsa
+```
+
+Check that the entry is a `PrivateKeyEntry` and that the signer certificate has
+`Criticality=true` on the **ExtendedKeyUsages** extension (OID `2.5.29.37`), with only `timeStamping`.
+If the server reports `Certificate must have an ExtendedKeyUsage extension marked as critical`,
+check this flag on the signer certificate for the exact alias you uploaded, not on the KU or CA
+certificate. Reissue the signer certificate if the flag is missing.
+
+In the web UI, use **Aláíró kulcs csere** and supply the file, its password and the alias `tsa`.
+Alternatively, send the same fields to the [key update endpoint](#post-apitimestampupdate-key):
+
+```bash
+read -rs -p 'PKCS12 password: ' tsa_password
+printf '\n'
+printf '%s' "$tsa_password" | curl --fail-with-body \
+  -F 'file=@test-tsa.p12' \
+  -F 'keystorePassword=<-' \
+  -F 'keyAlias=tsa' \
+  http://localhost:8080/api/timestamp/update-key
+unset tsa_password
+```
+
+Supply `keyPassword` only if the private-key password differs from the keystore password.
 
 Download the current certificate:
 
@@ -320,7 +413,7 @@ overridden with environment variables, command line arguments (`--timestamp.key-
 | `server.shutdown`                 | `graceful`                                               | Graceful shutdown.                                       |
 | `timestamp.key-algorithm`         | `RSA`                                                    | Algorithm of the generated key pair.                     |
 | `timestamp.key-size`              | `2048`                                                   | Size of the generated key.                               |
-| `timestamp.signature-algorithm`   | `SHA256WithRSA`                                          | Signature algorithm of the timestamp tokens.             |
+| `timestamp.signature-algorithm`   | `auto`                                                   | Select from the private key, or explicitly pin a compatible signature algorithm. |
 | `timestamp.certificate-subject`   | `CN=Test Timestamp Authority, O=Digital Signature, C=HU` | Subject of the generated certificate.                    |
 | `timestamp.policy-id`             | `1.3.6.1.4.1.13762.3`                                    | Policy OID written into the tokens.                      |
 | `timestamp.validity-days`         | `365`                                                    | Validity of the generated certificate.                   |

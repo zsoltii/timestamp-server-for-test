@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 public class TimeStampConfig {
     private String keyAlgorithm = "RSA";
     private int keySize = 2048;
-    private String sigAlgo = "SHA256WithRSA";
+    private String sigAlgo = "auto";
     private String certSubject = "CN=Test Timestamp Authority, O=Digital Signature, C=HU";
     private String policyId = "1.3.6.1.4.1.13762.3";
     private int validityDays = 365;

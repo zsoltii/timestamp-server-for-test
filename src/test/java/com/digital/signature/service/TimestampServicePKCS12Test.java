@@ -29,7 +29,6 @@ class TimestampServicePKCS12Test extends AbstractTest {
         // Set default configuration
         config.setKeyAlgorithm("RSA");
         config.setKeySize(2048);
-        config.setSignatureAlgorithm("SHA256WithRSA");
         config.setCertificateSubject("CN=Test Timestamp Authority, O=Test, C=HU");
         config.setPolicyId("1.3.6.1.4.1.13762.3");
         config.setValidityDays(365);
@@ -82,7 +81,6 @@ class TimestampServicePKCS12Test extends AbstractTest {
         config.setKeystorePassword("testPassword");
         config.setKeyAlias("ecTestKey");
         config.setKeyPassword("keyPassword");
-        config.setSignatureAlgorithm("SHA256withECDSA"); // EC requires ECDSA signature
 
         // Act
         timestampService.init();

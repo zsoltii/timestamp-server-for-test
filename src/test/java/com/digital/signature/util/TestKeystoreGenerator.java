@@ -18,6 +18,7 @@ import org.bouncycastle.asn1.x509.KeyPurposeId;
 import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 
@@ -65,7 +66,9 @@ public class TestKeystoreGenerator {
 
         // Generate key pair
         KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance(keyAlgorithm);
-        keyPairGenerator.initialize(keySize);
+        if (keySize > 0) {
+            keyPairGenerator.initialize(keySize);
+        }
         KeyPair keyPair = keyPairGenerator.generateKeyPair();
 
         // Create self-signed certificate
@@ -89,8 +92,11 @@ public class TestKeystoreGenerator {
                 true,
                 new ExtendedKeyUsage(KeyPurposeId.id_kp_timeStamping));
 
-        ContentSigner contentSigner =
-                new JcaContentSignerBuilder(signatureAlgorithm).build(keyPair.getPrivate());
+        JcaContentSignerBuilder signerBuilder = new JcaContentSignerBuilder(signatureAlgorithm);
+        if ("RSASSA-PSS".equals(keyAlgorithm)) {
+            signerBuilder.setProvider(new BouncyCastleProvider());
+        }
+        ContentSigner contentSigner = signerBuilder.build(keyPair.getPrivate());
         X509Certificate certificate =
                 new JcaX509CertificateConverter().getCertificate(certBuilder.build(contentSigner));
 
