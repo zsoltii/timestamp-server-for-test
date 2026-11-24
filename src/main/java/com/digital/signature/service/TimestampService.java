@@ -634,8 +634,9 @@ public class TimestampService {
             final DigestCalculatorProvider digestProvider =
                     new JcaDigestCalculatorProviderBuilder().build();
             final Extension eku = newCertHolder.getExtension(Extension.extendedKeyUsage);
+            final boolean nonCriticalEku = !requireCriticalEku && eku != null && !eku.isCritical();
             final X509CertificateHolder signerCertificate =
-                    !requireCriticalEku && eku != null && !eku.isCritical()
+                    nonCriticalEku
                             ? new NonCriticalEkuCertificateHolder(newCertHolder)
                             : newCertHolder;
             final SignerInfoGenerator signerInfoGen =
@@ -650,7 +651,7 @@ public class TimestampService {
                             signerInfoGen,
                             digestCalc,
                             new ASN1ObjectIdentifier(config.getPolicyId()));
-            if (signerCertificate != newCertHolder) {
+            if (nonCriticalEku) {
                 LOGGER.warn(
                         "Using a noncritical timestamping EKU; strict RFC 3161 validators may"
                                 + " reject timestamps");
@@ -702,15 +703,17 @@ public class TimestampService {
      * for the ESS certificate hash and the signed token.
      */
     private static final class NonCriticalEkuCertificateHolder extends X509CertificateHolder {
+        private static final long serialVersionUID = 1L;
+
         private NonCriticalEkuCertificateHolder(final X509CertificateHolder certificate) {
             super(certificate.toASN1Structure());
         }
 
         @Override
         public Extension getExtension(final ASN1ObjectIdentifier oid) {
-            final Extension extension = super.getExtension(oid);
+            Extension extension = super.getExtension(oid);
             if (Extension.extendedKeyUsage.equals(oid) && extension != null) {
-                return new Extension(oid, true, extension.getExtnValue());
+                extension = new Extension(oid, true, extension.getExtnValue());
             }
             return extension;
         }
