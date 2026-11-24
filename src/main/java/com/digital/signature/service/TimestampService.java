@@ -546,8 +546,41 @@ public class TimestampService {
                     OperatorCreationException,
                     org.bouncycastle.tsp.TSPException,
                     IOException {
+        updateSigningKey(pkcs12Data, keystorePassword, keyPassword, keyAlias, true);
+    }
+
+    /**
+     * Updates the signing key, optionally permitting a noncritical timestamping EKU.
+     *
+     * @param pkcs12Data the PKCS12 file data
+     * @param keystorePassword the keystore password
+     * @param keyPassword the key password, or null to use the keystore password
+     * @param keyAlias the key alias, or null to select the first key
+     * @param requireCriticalEku whether the timestamping EKU must be critical
+     * @throws IllegalArgumentException if the input is invalid
+     * @throws IllegalStateException if the key update fails
+     */
+    public synchronized void updateSigningKey(
+            final byte[] pkcs12Data,
+            final String keystorePassword,
+            final String keyPassword,
+            final String keyAlias,
+            final boolean requireCriticalEku)
+            throws KeyStoreException,
+                    NoSuchAlgorithmException,
+                    CertificateException,
+                    UnrecoverableKeyException,
+                    OperatorCreationException,
+                    org.bouncycastle.tsp.TSPException,
+                    IOException {
         try {
             logGenerateNewCertificate("Updating signing key with new PKCS12 keystore");
+            if (pkcs12Data == null || pkcs12Data.length == 0) {
+                throw new IllegalArgumentException("PKCS12 data must not be empty");
+            }
+            if (keystorePassword == null) {
+                throw new IllegalArgumentException("Keystore password must not be null");
+            }
 
             // Load the new PKCS12 keystore
             final KeyStore newKeystore = KeyStore.getInstance("PKCS12");
@@ -600,9 +633,14 @@ public class TimestampService {
 
             final DigestCalculatorProvider digestProvider =
                     new JcaDigestCalculatorProviderBuilder().build();
+            final Extension eku = newCertHolder.getExtension(Extension.extendedKeyUsage);
+            final X509CertificateHolder signerCertificate =
+                    !requireCriticalEku && eku != null && !eku.isCritical()
+                            ? new NonCriticalEkuCertificateHolder(newCertHolder)
+                            : newCertHolder;
             final SignerInfoGenerator signerInfoGen =
                     new JcaSignerInfoGeneratorBuilder(digestProvider)
-                            .build(newContentSigner, newCertHolder);
+                            .build(newContentSigner, signerCertificate);
 
             final DigestCalculator digestCalc =
                     digestProvider.get(new AlgorithmIdentifier(OIWObjectIdentifiers.idSHA1));
@@ -612,6 +650,11 @@ public class TimestampService {
                             signerInfoGen,
                             digestCalc,
                             new ASN1ObjectIdentifier(config.getPolicyId()));
+            if (signerCertificate != newCertHolder) {
+                LOGGER.warn(
+                        "Using a noncritical timestamping EKU; strict RFC 3161 validators may"
+                                + " reject timestamps");
+            }
 
             // Add certificates to store
             final List<X509CertificateHolder> certs = new ArrayList<>();
@@ -651,6 +694,25 @@ public class TimestampService {
                 LOGGER.error("Failed to update signing key: {}", e.getMessage());
             }
             throw new IllegalStateException("Failed to update signing key: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Presents the EKU as critical only to Bouncy Castle's validation, retaining the original DER
+     * for the ESS certificate hash and the signed token.
+     */
+    private static final class NonCriticalEkuCertificateHolder extends X509CertificateHolder {
+        private NonCriticalEkuCertificateHolder(final X509CertificateHolder certificate) {
+            super(certificate.toASN1Structure());
+        }
+
+        @Override
+        public Extension getExtension(final ASN1ObjectIdentifier oid) {
+            final Extension extension = super.getExtension(oid);
+            if (Extension.extendedKeyUsage.equals(oid) && extension != null) {
+                return new Extension(oid, true, extension.getExtnValue());
+            }
+            return extension;
         }
     }
 }

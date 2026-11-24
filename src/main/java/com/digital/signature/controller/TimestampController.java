@@ -140,6 +140,7 @@ public class TimestampController {
      * @param keystorePassword The password for the PKCS12 keystore
      * @param keyPassword The password for the private key (optional, defaults to keystorePassword)
      * @param keyAlias The alias of the key in the keystore (optional, defaults to first key found)
+     * @param requireCriticalEku Whether the timestamping EKU must be critical (defaults to true)
      * @return Success message
      * @throws IllegalArgumentException if the update fails due to invalid input
      * @throws IllegalStateException if the update fails due to internal error
@@ -149,10 +150,12 @@ public class TimestampController {
             @RequestParam("file") final MultipartFile pkcs12File,
             @RequestParam("keystorePassword") final String keystorePassword,
             @RequestParam(value = "keyPassword", required = false) final String keyPassword,
-            @RequestParam(value = "keyAlias", required = false) final String keyAlias)
+            @RequestParam(value = "keyAlias", required = false) final String keyAlias,
+            @RequestParam(value = "requireCriticalEku", defaultValue = "true")
+                    final boolean requireCriticalEku)
             throws Exception {
         timestampService.updateSigningKey(
-                pkcs12File.getBytes(), keystorePassword, keyPassword, keyAlias);
+                pkcs12File.getBytes(), keystorePassword, keyPassword, keyAlias, requireCriticalEku);
         return ResponseEntity.ok("Signing key updated successfully");
     }
 

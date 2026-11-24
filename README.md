@@ -174,15 +174,26 @@ An invalid `time` gives `400 Bad Request` and the previous setting is kept.
 
 `multipart/form-data` with the fields:
 
-| Field              | Required | Description                                                          |
-|--------------------|----------|----------------------------------------------------------------------|
-| `file`             | yes      | The PKCS12 file (`.p12` / `.pfx`).                                   |
-| `keystorePassword` | yes      | Keystore password.                                                   |
-| `keyPassword`      | no       | Private key password, defaults to the keystore password.             |
-| `keyAlias`         | no       | Alias of the key entry, defaults to the first private key found.     |
+| Field                | Required | Description                                                                            |
+|----------------------|----------|----------------------------------------------------------------------------------------|
+| `file`               | yes      | The PKCS12 file (`.p12` / `.pfx`).                                                     |
+| `keystorePassword`   | yes      | Keystore password.                                                                     |
+| `keyPassword`        | no       | Private key password, defaults to the keystore password.                               |
+| `keyAlias`           | no       | Alias of the key entry, defaults to the first private key found.                       |
+| `requireCriticalEku` | no       | Boolean; defaults to `true`. If `false`, both critical and noncritical EKUs are accepted. |
 
 `200` with `Signing key updated successfully`, or `500` with a problem detail when the file, the password or the alias
-is wrong.
+is wrong. An invalid boolean gives `400`.
+
+The web UI always sends this option explicitly: its checkbox is checked by default and sends `true`; clearing it
+sends `false`. Setting it to `false` is a test-only,
+non-RFC 3161 mode: strict timestamp validators may reject tokens made with a noncritical EKU. The certificate must
+still have an EKU containing **only** `id-kp-timeStamping`; the uploaded certificate is not modified.
+
+```bash
+curl -X POST http://localhost:8080/api/timestamp/update-key \
+  -F "file=@test-tsa.p12" -F "keystorePassword=changeit" -F "requireCriticalEku=false"
+```
 
 ### Actuator endpoints
 
@@ -292,7 +303,7 @@ Three ways to provide the signing key:
 With `timestamp.signature-algorithm=auto` (the default), the server selects the timestamp signature algorithm
 from the private key at startup and after each upload. PKCS12 signing keys supported on JDK 25 include RSA,
 RSA-PSS, EC (ECDSA), DSA, Ed25519, Ed448 and ML-DSA-44/65/87. An RSA key still defaults to `SHA256withRSA`.
-The uploaded certificate still needs the critical `id-kp-timeStamping` EKU. Timestamp verifiers must support
+The uploaded certificate needs the `id-kp-timeStamping` EKU, critical by default. Timestamp verifiers must support
 the selected signature algorithm. PKCS11 and key-agreement-only keys are not supported by this upload.
 If an existing deployment explicitly sets a signature algorithm, remove that override or change it to `auto`
 to allow switching between key types without restarting.
@@ -300,8 +311,9 @@ to allow switching between key types without restarting.
 ### Create an uploadable PKCS12 keystore
 
 The `.p12` or `.pfx` must contain a **private-key entry** and its matching X.509 v3 signer certificate.
-The certificate's **Extended Key Usage (EKU)** must be **critical** and contain **only** Time Stamping
-(`1.3.6.1.5.5.7.3.8`). This is separate from **Key Usage (KU)**. To match the server's generated test
+The certificate's **Extended Key Usage (EKU)** must contain **only** Time Stamping
+(`1.3.6.1.5.5.7.3.8`) and must be **critical** unless the upload explicitly enables the nonstandard
+test-only mode described above. This is separate from **Key Usage (KU)**. To match the server's generated test
 certificate, use `digitalSignature` and `nonRepudiation` for KU and set Basic Constraints to non-CA.
 The following examples create self-signed certificates for local testing.
 
@@ -371,11 +383,12 @@ keytool -genkeypair -storetype PKCS12 -keystore test-tsa.p12 -alias tsa \
 keytool -list -v -storetype PKCS12 -keystore test-tsa.p12 -alias tsa
 ```
 
-Check that the entry is a `PrivateKeyEntry` and that the signer certificate has
+For RFC 3161-compliant use, check that the entry is a `PrivateKeyEntry` and that the signer certificate has
 `Criticality=true` on the **ExtendedKeyUsages** extension (OID `2.5.29.37`), with only `timeStamping`.
 If the server reports `Certificate must have an ExtendedKeyUsage extension marked as critical`,
 check this flag on the signer certificate for the exact alias you uploaded, not on the KU or CA
-certificate. Reissue the signer certificate if the flag is missing.
+certificate. Reissue the signer certificate if the flag is missing, or explicitly disable the criticality
+requirement for test-only use as described in the upload API section.
 
 In the web UI, use **Aláíró kulcs csere** and supply the file, its password and the alias `tsa`.
 Alternatively, send the same fields to the [key update endpoint](#post-apitimestampupdate-key):

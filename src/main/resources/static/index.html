@@ -155,6 +155,19 @@
     <label for="keyAlias">Kulcs alias (opcionális, ha üres: első megtalált kulcs)</label>
     <input type="text" id="keyAlias" name="keyAlias" />
 
+    <label for="requireCriticalEku">
+      <input type="checkbox" id="requireCriticalEku" name="requireCriticalEku" checked
+             aria-describedby="requireCriticalEku-help" />
+      Az Extended Key Usage (EKU) legyen kritikus
+    </label>
+    <p id="requireCriticalEku-help" class="note">
+      Bekapcsolva csak olyan tanúsítvány fogadható el, amelynek az időbélyegzésre szolgáló EKU
+      kiterjesztése kritikus, az RFC 3161 előírásának megfelelően. Kikapcsolva a kritikus és a
+      nem kritikus EKU is elfogadható, de az EKU továbbra is kizárólag időbélyegzésre szolgálhat.
+      A nem kritikus tanúsítvánnyal létrehozott időbélyeg nem felel meg az RFC 3161 előírásának,
+      ezért a szigorú ellenőrzők elutasíthatják; ezt csak teszteléshez használd.
+    </p>
+
     <button type="submit">Aláíró kulcs frissítése</button>
   </form>
   <div id="update-key-result" class="result"></div>
@@ -306,6 +319,7 @@
     event.preventDefault();
     const form = event.target;
     const formData = new FormData(form);
+    formData.set("requireCriticalEku", String(document.getElementById("requireCriticalEku").checked));
 
     // Drop empty optional fields so the server falls back to its defaults.
     for (const field of ["keyPassword", "keyAlias"]) {
