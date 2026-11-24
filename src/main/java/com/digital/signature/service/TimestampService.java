@@ -11,12 +11,17 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.security.interfaces.DSAKey;
+import java.security.interfaces.ECKey;
+import java.security.interfaces.RSAKey;
 import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.NamedParameterSpec;
 import java.security.spec.PSSParameterSpec;
@@ -31,6 +36,7 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -52,6 +58,7 @@ import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.cert.CertIOException;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaCertStore;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.cms.SignerInfoGenerator;
 import org.bouncycastle.cms.jcajce.JcaSignerInfoGeneratorBuilder;
@@ -502,6 +509,61 @@ public class TimestampService {
             throw new IllegalStateException("Signing certificate not initialized");
         }
         return signCert.getEncoded();
+    }
+
+    /**
+     * Returns public information about the signing certificate active in memory.
+     *
+     * <p>The snapshot is synchronized with signing key updates.
+     *
+     * @return public certificate and public key information
+     * @throws IllegalStateException if the certificate is unavailable or cannot be inspected
+     */
+    public synchronized SigningCertificateInfo getSigningCertificateInfo() {
+        if (signCert == null) {
+            throw new IllegalStateException("Signing certificate not initialized");
+        }
+        try {
+            final X509Certificate certificate =
+                    new JcaX509CertificateConverter().getCertificate(signCert);
+            final PublicKey publicKey = certificate.getPublicKey();
+            final String fingerprint =
+                    HexFormat.of()
+                            .withUpperCase()
+                            .formatHex(
+                                    MessageDigest.getInstance("SHA-256")
+                                            .digest(certificate.getEncoded()));
+            final String parameters =
+                    publicKey.getParams() instanceof NamedParameterSpec named
+                            ? named.getName()
+                            : null;
+            return new SigningCertificateInfo(
+                    certificate.getSubjectX500Principal().getName(),
+                    certificate.getIssuerX500Principal().getName(),
+                    certificate.getSerialNumber().toString(16).toUpperCase(Locale.ROOT),
+                    certificate.getNotBefore().toInstant(),
+                    certificate.getNotAfter().toInstant(),
+                    fingerprint,
+                    publicKey.getAlgorithm(),
+                    getPublicKeySize(publicKey),
+                    parameters);
+        } catch (CertificateException | NoSuchAlgorithmException e) {
+            throw new IllegalStateException("Failed to inspect signing certificate", e);
+        }
+    }
+
+    private static Integer getPublicKeySize(final PublicKey key) {
+        final Integer size;
+        if (key instanceof RSAKey rsa) {
+            size = rsa.getModulus().bitLength();
+        } else if (key instanceof ECKey ellipticCurve && ellipticCurve.getParams() != null) {
+            size = ellipticCurve.getParams().getCurve().getField().getFieldSize();
+        } else if (key instanceof DSAKey dsa && dsa.getParams() != null) {
+            size = dsa.getParams().getP().bitLength();
+        } else {
+            size = null;
+        }
+        return size;
     }
 
     /** Get the current signing certificate in PEM format */

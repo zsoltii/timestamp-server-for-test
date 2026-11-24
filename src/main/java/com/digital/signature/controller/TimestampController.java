@@ -1,8 +1,10 @@
 package com.digital.signature.controller;
 
+import com.digital.signature.service.SigningCertificateInfo;
 import com.digital.signature.service.TimestampService;
 import java.time.Instant;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -174,6 +176,19 @@ public class TimestampController {
         headers.set("Content-Disposition", "attachment; filename=signing-certificate.cer");
 
         return ResponseEntity.ok().headers(headers).body(certificate);
+    }
+
+    /**
+     * Returns public information about the current signing certificate.
+     *
+     * @return certificate and public key details, without private key material
+     * @throws IllegalStateException if the certificate cannot be inspected
+     */
+    @GetMapping("/certificate/info")
+    public ResponseEntity<SigningCertificateInfo> getSigningCertificateInfo() {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(timestampService.getSigningCertificateInfo());
     }
 
     /**

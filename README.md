@@ -108,20 +108,22 @@ Open `http://localhost:8080/` for the [web UI](#web-ui).
 
 ## Web UI
 
-`http://localhost:8080/` serves a single static page (Hungarian labels) with these sections:
+`http://localhost:8080/` serves a single static page (English labels) with these sections:
 
 | Section                                    | What it does                                                                                            |
 |--------------------------------------------|---------------------------------------------------------------------------------------------------------|
-| **Állapot** (status)                       | Health check, current time as ISO 8601, current time as Unix epoch.                                     |
-| **Aláíró tanúsítvány** (signing certificate)| Shows the PEM certificate, downloads it as DER (`.cer`).                                                |
-| **Rögzített időbélyeg-időpont** (fixed time)| Sets, shows and clears the [fixed time](#fixed-time-for-every-timestamp). The current value is loaded when the page opens. |
-| **Időbélyeg tetszőleges időponttal** (one-off) | Pick a file (its SHA-256 is computed in the browser, the file is not uploaded) or paste a SHA-256 hash, optionally enter a time, and the `.tsr` response is downloaded. |
-| **Aláíró kulcs csere** (key update)        | Uploads a PKCS12 file and replaces the signing key (see [Signing key and certificate](#signing-key-and-certificate)). |
+| **Status**                                 | Health check, current time as ISO 8601, current time as Unix epoch.                                     |
+| **Signing certificate**                    | Shows the current certificate and public key details, displays PEM and downloads DER (`.cer`).          |
+| **Fixed timestamp time**                   | Sets, shows and clears the [fixed time](#fixed-time-for-every-timestamp). The current value is loaded when the page opens. |
+| **Timestamp with a custom time**           | Pick a file (its SHA-256 is computed in the browser, the file is not uploaded) or paste a SHA-256 hash, optionally enter a time, and the `.tsr` response is downloaded. |
+| **Replace signing key**                    | Uploads a PKCS12 file and replaces the signing key (see [Signing key and certificate](#signing-key-and-certificate)). |
 
 The page uses relative API URLs, so it also works under a context path behind a reverse proxy.
 If the UI is published under `/timestamp`, open `/timestamp/` (with the trailing slash) and
 proxy that whole path, including `/timestamp/api/timestamp/...`, to the application.
 No separate proxy rules are needed for individual API endpoints.
+Certificate details load when the page opens and refresh after a successful key update on that page.
+Changes made by another client are shown after reloading the page. Private keys and passwords are never displayed.
 
 Everything the page does can also be done with `curl`.
 
@@ -138,10 +140,17 @@ Base path: `/api/timestamp`. All endpoints are public (no authentication).
 | `/api/timestamp/unix`         | GET              | Current time as Unix epoch seconds                   | -                             | number                        |
 | `/api/timestamp/health`       | GET              | Liveness check                                       | -                             | text                          |
 | `/api/timestamp/certificate`  | GET              | Signing certificate, DER (`signing-certificate.cer`) | -                             | `application/pkix-cert`       |
+| `/api/timestamp/certificate/info` | GET           | Current certificate and public key details           | -                             | JSON, `Cache-Control: no-store` |
 | `/api/timestamp/certificate/pem` | GET           | Signing certificate, PEM                             | -                             | `application/x-pem-file`      |
 | `/api/timestamp/update-key`   | POST             | Replace the signing key with a PKCS12 keystore       | `multipart/form-data`         | text                          |
 
 `/simple` and `/unix` always return the real current time; the fixed time does not affect them.
+
+`GET /api/timestamp/certificate/info` returns `subject`, `issuer`, hexadecimal `serialNumber`,
+`validFrom` and `validUntil` in UTC, hexadecimal `sha256Fingerprint`, `publicKeyAlgorithm`,
+`publicKeySizeBits`, and `publicKeyParameters`. The last two fields are null when not determinable.
+The response contains no private key material or passwords. It returns an error if the certificate
+is unavailable or cannot be inspected.
 
 ### `POST /api/timestamp`
 
@@ -206,7 +215,7 @@ curl -X POST http://localhost:8080/api/timestamp/update-key \
 Set a time once on the server; from then on **every standard request** to `POST /api/timestamp` (no extra fields, so
 any RFC 3161 client works unchanged) gets a timestamp carrying that time, until you change or clear it.
 
-On the web UI use the section *Rögzített időbélyeg-időpont*, or with the API:
+On the web UI use the section *Fixed timestamp time*, or with the API:
 
 ```bash
 # set (URL-encode the + sign as %2B, or let curl encode it)
@@ -390,7 +399,7 @@ check this flag on the signer certificate for the exact alias you uploaded, not 
 certificate. Reissue the signer certificate if the flag is missing, or explicitly disable the criticality
 requirement for test-only use as described in the upload API section.
 
-In the web UI, use **Aláíró kulcs csere** and supply the file, its password and the alias `tsa`.
+In the web UI, use **Replace signing key** and supply the file, its password and the alias `tsa`.
 Alternatively, send the same fields to the [key update endpoint](#post-apitimestampupdate-key):
 
 ```bash

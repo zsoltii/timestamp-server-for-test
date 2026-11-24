@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="hu">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Timestamp Server - Admin felület</title>
+<title>Timestamp Server - Admin interface</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -65,110 +65,113 @@
 </head>
 <body>
 
-<h1>Timestamp Server &ndash; admin felület</h1>
+<h1>Timestamp Server &ndash; Admin interface</h1>
 <p class="note">
-  Egyszerű felület a <code>/api/timestamp/*</code> végpontok eléréséhez: állapot lekérdezés, aláíró tanúsítvány
-  megtekintése és az aláíró kulcs (PKCS12) cseréje.
+  A simple interface for the <code>/api/timestamp/*</code> endpoints: check status, view the signing certificate,
+  and replace the signing key (PKCS12).
 </p>
 <p class="warn">
-  Figyelem: ez a szerver teszt célú, az aláíró kulcs cseréje jelenleg nincs hitelesítéshez kötve. Ne tegyük
-  nyilvánosan elérhetővé megbízható környezetben.
+  Warning: this server is intended for testing, and signing key replacement currently requires no authentication.
+  Do not expose it publicly in a trusted environment.
 </p>
 
-<h2>Állapot</h2>
+<h2>Status</h2>
 <section>
   <div class="row">
     <button type="button" data-action="health">Health check</button>
-    <button type="button" data-action="simple">Egyszerű (ISO-8601) időbélyeg</button>
-    <button type="button" data-action="unix">Unix időbélyeg</button>
+    <button type="button" data-action="simple">Simple timestamp (ISO-8601)</button>
+    <button type="button" data-action="unix">Unix timestamp</button>
   </div>
   <div id="status-result" class="result"></div>
 </section>
 
-<h2>Aláíró tanúsítvány</h2>
+<h2>Signing certificate</h2>
 <section>
+  <div id="cert-info" class="result" role="status" aria-live="polite">
+    Loading signing certificate details...
+  </div>
   <div class="row">
-    <button type="button" data-action="cert-pem">Tanúsítvány (PEM) megtekintése</button>
+    <button type="button" data-action="cert-pem">View certificate (PEM)</button>
     <a href="./api/timestamp/certificate" download="signing-certificate.cer">
-      <button type="button">Tanúsítvány letöltése (DER)</button>
+      <button type="button">Download certificate (DER)</button>
     </a>
   </div>
   <div id="cert-result" class="result"></div>
 </section>
 
-<h2>Rögzített időbélyeg-időpont</h2>
+<h2>Fixed timestamp time</h2>
 <section>
   <p class="note">
-    Ha itt időpont van beállítva, a szabványos időbélyeg-kérések (<code>POST /api/timestamp</code>) mindegyike ezt az
-    időpontot kapja, a múltban vagy a jövőben is lehet. Formátum: <code>yyyy-MM-dd HH:mm:ssZ</code> (24 órás), pl.
-    <code>2020-01-31 14:30:00+0200</code>; időzóna nélkül UTC. Az időzóna lehet eltolás (<code>Z</code>,
-    <code>+0200</code>, <code>+02:00</code>), rövidítés (<code>UTC</code>, <code>CET</code>, <code>CEST</code>,
-    <code>EET</code>, <code>EEST</code>&hellip;) vagy régió (<code>Europe/Budapest</code>), a dátum és az idő közé
-    <code>T</code> is írható. Üres érték mentése visszaáll az aktuális időre. A
-    beállítás csak memóriában él, a szerver újraindításakor törlődik.
+    When set, this time is used for every standard timestamp request (<code>POST /api/timestamp</code>).
+    It may be in the past or future. Format: <code>yyyy-MM-dd HH:mm:ssZ</code> (24-hour), e.g.
+    <code>2020-01-31 14:30:00+0200</code>; UTC is used when no time zone is given. The time zone can be an
+    offset (<code>Z</code>, <code>+0200</code>, <code>+02:00</code>), an abbreviation (<code>UTC</code>,
+    <code>CET</code>, <code>CEST</code>, <code>EET</code>, <code>EEST</code>&hellip;) or a region
+    (<code>Europe/Budapest</code>). A <code>T</code> can also separate the date and time.
+    Saving an empty value restores the current time. This setting is kept in memory and cleared on server restart.
   </p>
   <form id="fixed-time-form">
-    <label for="fixedTime">Időpont (üres: aktuális idő)</label>
+    <label for="fixedTime">Time (empty: current time)</label>
     <input type="text" id="fixedTime" placeholder="2020-01-31 14:30:00+0200" />
     <div class="row">
-      <button type="submit">Mentés</button>
-      <button type="button" id="fixed-time-clear">Törlés (aktuális idő)</button>
+      <button type="submit">Save</button>
+      <button type="button" id="fixed-time-clear">Clear (use current time)</button>
     </div>
   </form>
   <div id="fixed-time-result" class="result"></div>
 </section>
 
-<h2>Időbélyeg tetszőleges időponttal</h2>
+<h2>Timestamp with a custom time</h2>
 <section>
   <p class="note">
-    Egyszeri időbélyeg-válasz letöltése, a rögzített időponttól függetlenül. RFC 3161 időbélyeg-válasz (<code>.tsr</code>) készítése egy fájlhoz vagy hash-hez, a múltban vagy a jövőben lévő
-    időponttal. Formátum: <code>yyyy-MM-dd HH:mm:ssZ</code> (24 órás), pl. <code>2020-01-31 14:30:00+0200</code>.
-    Ha nincs időzóna megadva, UTC (az időzóna megadási módjai fent, a rögzített időpontnál); ha az időpont üres, az aktuális idő kerül be.
+    Download a one-off RFC 3161 timestamp response (<code>.tsr</code>) for a file or hash, independently of
+    the fixed time. The time may be in the past or future. Format: <code>yyyy-MM-dd HH:mm:ssZ</code>
+    (24-hour), e.g. <code>2020-01-31 14:30:00+0200</code>. UTC is used when no time zone is given;
+    the time zone formats are described above. An empty time uses the current time.
   </p>
   <form id="custom-time-form">
-    <label for="ctFile">Fájl (a SHA-256 hash-ét a böngésző számolja)</label>
+    <label for="ctFile">File (its SHA-256 hash is calculated in the browser)</label>
     <input type="file" id="ctFile" />
 
-    <label for="ctHash">&hellip;vagy SHA-256 hash (64 hexa karakter)</label>
-    <input type="text" id="ctHash" placeholder="pl. e3b0c44298fc1c149afbf4c8996fb924..." />
+    <label for="ctHash">&hellip;or SHA-256 hash (64 hexadecimal characters)</label>
+    <input type="text" id="ctHash" placeholder="e.g. e3b0c44298fc1c149afbf4c8996fb924..." />
 
-    <label for="ctTime">Időpont (opcionális)</label>
+    <label for="ctTime">Time (optional)</label>
     <input type="text" id="ctTime" placeholder="2020-01-31 14:30:00+0200" />
 
-    <button type="submit">Időbélyeg-válasz letöltése (.tsr)</button>
+    <button type="submit">Download timestamp response (.tsr)</button>
   </form>
   <div id="custom-time-result" class="result"></div>
 </section>
 
-<h2>Aláíró kulcs csere</h2>
+<h2>Replace signing key</h2>
 <section>
   <form id="update-key-form">
-    <label for="file">PKCS12 fájl (.p12 / .pfx)</label>
+    <label for="file">PKCS12 file (.p12 / .pfx)</label>
     <input type="file" id="file" name="file" accept=".p12,.pfx" required />
 
-    <label for="keystorePassword">Keystore jelszó</label>
+    <label for="keystorePassword">Keystore password</label>
     <input type="password" id="keystorePassword" name="keystorePassword" required />
 
-    <label for="keyPassword">Kulcs jelszó (opcionális, ha üres: keystore jelszó)</label>
+    <label for="keyPassword">Key password (optional; defaults to keystore password)</label>
     <input type="password" id="keyPassword" name="keyPassword" />
 
-    <label for="keyAlias">Kulcs alias (opcionális, ha üres: első megtalált kulcs)</label>
+    <label for="keyAlias">Key alias (optional; defaults to the first key found)</label>
     <input type="text" id="keyAlias" name="keyAlias" />
 
     <label for="requireCriticalEku">
       <input type="checkbox" id="requireCriticalEku" name="requireCriticalEku" checked
              aria-describedby="requireCriticalEku-help" />
-      Az Extended Key Usage (EKU) legyen kritikus
+      Require critical Extended Key Usage (EKU)
     </label>
     <p id="requireCriticalEku-help" class="note">
-      Bekapcsolva csak olyan tanúsítvány fogadható el, amelynek az időbélyegzésre szolgáló EKU
-      kiterjesztése kritikus, az RFC 3161 előírásának megfelelően. Kikapcsolva a kritikus és a
-      nem kritikus EKU is elfogadható, de az EKU továbbra is kizárólag időbélyegzésre szolgálhat.
-      A nem kritikus tanúsítvánnyal létrehozott időbélyeg nem felel meg az RFC 3161 előírásának,
-      ezért a szigorú ellenőrzők elutasíthatják; ezt csak teszteléshez használd.
+      When enabled, only certificates with a critical timestamping EKU extension are accepted, as required by
+      RFC 3161. When disabled, both critical and noncritical EKUs are accepted, but the EKU must still be
+      exclusively for timestamping. A timestamp created with a noncritical EKU does not comply with RFC 3161
+      and may be rejected by strict validators; use this option only for testing.
     </p>
 
-    <button type="submit">Aláíró kulcs frissítése</button>
+    <button type="submit">Update signing key</button>
   </form>
   <div id="update-key-result" class="result"></div>
 </section>
@@ -204,7 +207,7 @@
       }
     } catch (e) {
       const targetId = action === "cert-pem" ? "cert-result" : "status-result";
-      showResult(targetId, false, "Kérés sikertelen: " + e);
+      showResult(targetId, false, "Request failed: " + e);
     }
   }
 
@@ -241,6 +244,48 @@
     }
   }
 
+  let certInfoRequest = 0;
+
+  async function loadCertificateInfo() {
+    const request = ++certInfoRequest;
+    const target = document.getElementById("cert-info");
+    target.className = "result";
+    target.textContent = "Loading signing certificate details...";
+    try {
+      const res = await fetch(API + "/certificate/info", { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error(await problemMessage(res));
+      }
+      const info = await res.json();
+      if (request !== certInfoRequest) return;
+      const fields = [
+        ["Subject", info.subject],
+        ["Issuer", info.issuer],
+        ["Serial number (hex)", info.serialNumber],
+        ["Valid from (UTC)", info.validFrom],
+        ["Valid until (UTC)", info.validUntil],
+        ["SHA-256 fingerprint", info.sha256Fingerprint],
+        ["Public key algorithm", info.publicKeyAlgorithm],
+        ["Public key size (bits)", info.publicKeySizeBits],
+        ["Public key parameters", info.publicKeyParameters],
+      ];
+      const list = document.createElement("dl");
+      for (const [label, value] of fields) {
+        const term = document.createElement("dt");
+        const description = document.createElement("dd");
+        term.textContent = label;
+        description.textContent = value == null ? "Not available" : String(value);
+        list.append(term, description);
+      }
+      target.replaceChildren(list);
+    } catch (e) {
+      if (request !== certInfoRequest) return;
+      showResult("cert-info", false, "Failed to retrieve signing certificate details: " + e);
+    }
+  }
+
+  loadCertificateInfo();
+
   document.getElementById("custom-time-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const file = document.getElementById("ctFile").files[0];
@@ -255,7 +300,7 @@
       } else if (/^[0-9a-fA-F]{64}$/.test(hash)) {
         digest = hexToBytes(hash);
       } else {
-        showResult(target, false, "Válassz fájlt, vagy adj meg 64 hexa karakteres SHA-256 hash-t.");
+        showResult(target, false, "Choose a file or enter a 64-character hexadecimal SHA-256 hash.");
         return;
       }
 
@@ -276,9 +321,9 @@
       link.download = (file ? file.name : "timestamp") + ".tsr";
       link.click();
       URL.revokeObjectURL(link.href);
-      showResult(target, true, "Időbélyeg kész, időpont (UTC): " + res.headers.get("X-Timestamp-Time"));
+      showResult(target, true, "Timestamp created, time (UTC): " + res.headers.get("X-Timestamp-Time"));
     } catch (e) {
-      showResult(target, false, "Kérés sikertelen: " + e);
+      showResult(target, false, "Request failed: " + e);
     }
   });
 
@@ -287,8 +332,8 @@
       return text;
     }
     return res.status === 204
-      ? "Nincs rögzített időpont, az aktuális idő kerül az időbélyegbe."
-      : "Rögzített időpont (UTC): " + text;
+      ? "No fixed time is set; the current time will be used in timestamps."
+      : "Fixed time (UTC): " + text;
   }
 
   async function sendFixedTime(method, query) {
@@ -298,7 +343,7 @@
       const text = res.ok ? await res.text() : await problemMessage(res);
       showResult(target, res.ok, describeFixedTime(res, text));
     } catch (e) {
-      showResult(target, false, "Kérés sikertelen: " + e);
+      showResult(target, false, "Request failed: " + e);
     }
   }
 
@@ -341,9 +386,10 @@
       showResult("update-key-result", res.ok, message);
       if (res.ok) {
         form.reset();
+        loadCertificateInfo();
       }
     } catch (e) {
-      showResult("update-key-result", false, "Kérés sikertelen: " + e);
+      showResult("update-key-result", false, "Request failed: " + e);
     }
   });
 </script>
