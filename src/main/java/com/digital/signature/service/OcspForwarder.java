@@ -1,6 +1,7 @@
 package com.digital.signature.service;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -64,26 +65,29 @@ public class OcspForwarder {
                         .header(FORWARDED_HEADER, "1")
                         .POST(HttpRequest.BodyPublishers.ofByteArray(request))
                         .build();
-        final HttpResponse<byte[]> response;
+        final HttpResponse<InputStream> response;
         try {
-            response = client.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
+            response = client.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Forwarding was interrupted", e);
         }
-        final byte[] body = response.body();
-        if (response.statusCode() != HTTP_OK) {
-            throw new IOException(
-                    "the responder answered HTTP "
-                            + response.statusCode()
-                            + " (content type "
-                            + response.headers().firstValue("Content-Type").orElse("none")
-                            + ")");
+        final byte[] body;
+        try (InputStream stream = response.body()) {
+            if (response.statusCode() != HTTP_OK) {
+                throw new IOException(
+                        "the responder answered HTTP "
+                                + response.statusCode()
+                                + " (content type "
+                                + response.headers().firstValue("Content-Type").orElse("none")
+                                + ")");
+            }
+            body = stream == null ? new byte[0] : stream.readNBytes(MAX_RESPONSE_SIZE + 1);
         }
-        if (body == null || body.length == 0 || body.length > MAX_RESPONSE_SIZE) {
+        if (body.length == 0 || body.length > MAX_RESPONSE_SIZE) {
             throw new IOException(
                     "the responder answered with an empty or too large body ("
-                            + (body == null ? 0 : body.length)
+                            + body.length
                             + " bytes)");
         }
         if (LOGGER.isDebugEnabled()) {

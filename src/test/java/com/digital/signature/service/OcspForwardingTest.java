@@ -88,6 +88,33 @@ class OcspForwardingTest {
     }
 
     @Test
+    void requestWithSha384ForUnknownIssuerIsForwarded() throws Exception {
+        service.setForwarding(new OcspService.Forwarding(true, UPSTREAM));
+        final byte[] sha384Request =
+                OcspTestPki.request(
+                        List.of(
+                                OcspTestPki.certId(
+                                        unknown.certificate(), BigInteger.TEN, "SHA-384")));
+
+        assertThat(service.respond(sha384Request)).isEqualTo(forwarder.answer);
+        assertThat(forwarder.targets).containsExactly(URI.create(UPSTREAM));
+    }
+
+    @Test
+    void requestWithSha384ForKnownIssuerIsNotForwarded() throws Exception {
+        service.setForwarding(new OcspService.Forwarding(true, UPSTREAM));
+        final byte[] sha384Request =
+                OcspTestPki.request(
+                        List.of(
+                                OcspTestPki.certId(
+                                        known.certificate(), BigInteger.TEN, "SHA-384")));
+
+        assertThat(status(service.respond(sha384Request)))
+                .isEqualTo(OCSPRespBuilder.MALFORMED_REQUEST);
+        assertThat(forwarder.targets).isEmpty();
+    }
+
+    @Test
     void requestWithProfileIsAnsweredLocallyEvenWhenForwardingIsEnabled() throws Exception {
         service.setForwarding(new OcspService.Forwarding(true, UPSTREAM));
 

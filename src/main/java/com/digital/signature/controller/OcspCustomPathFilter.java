@@ -23,7 +23,6 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class OcspCustomPathFilter extends OncePerRequestFilter {
     private static final Logger LOGGER = LoggerFactory.getLogger(OcspCustomPathFilter.class);
     private static final String RESPONSE_TYPE = "application/ocsp-response";
-    private static final int MAX_BODY = 65_536;
     private final OcspService service;
 
     public OcspCustomPathFilter(final OcspService service) {
@@ -39,23 +38,23 @@ public class OcspCustomPathFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         final String path = request.getRequestURI().substring(request.getContextPath().length());
         final String remainder = service.customPathRemainder(path);
-        if (remainder != null && LOGGER.isDebugEnabled()) {
+        final boolean isGet = HttpMethod.GET.matches(request.getMethod());
+        final boolean handled = remainder != null && (isGet || remainder.isEmpty());
+        if (handled && LOGGER.isDebugEnabled()) {
             LOGGER.debug(
                     "OCSP {} on custom path {}, content type {}",
                     request.getMethod(),
                     path,
                     request.getContentType());
         }
-        if (remainder == null) {
-            chain.doFilter(request, response);
-        } else if (HttpMethod.POST.matches(request.getMethod())) {
-            write(response, service.respond(readBody(request), isForwarded(request)));
-        } else if (HttpMethod.GET.matches(request.getMethod())) {
+        if (handled && isGet) {
             write(
                     response,
                     service.respond(
                             OcspController.decodeGetRequest(remainder), isForwarded(request)));
-        } else {
+        } else if (handled && HttpMethod.POST.matches(request.getMethod())) {
+            write(response, service.respond(readBody(request), isForwarded(request)));
+        } else if (handled) {
             if (LOGGER.isWarnEnabled()) {
                 LOGGER.warn(
                         "OCSP {} on custom path {} rejected with HTTP 405: only GET and POST",
@@ -64,6 +63,8 @@ public class OcspCustomPathFilter extends OncePerRequestFilter {
             }
             response.setHeader(HttpHeaders.ALLOW, "GET, POST");
             response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+        } else {
+            chain.doFilter(request, response);
         }
     }
 
@@ -72,10 +73,12 @@ public class OcspCustomPathFilter extends OncePerRequestFilter {
     }
 
     private static byte[] readBody(final HttpServletRequest request) throws IOException {
-        final byte[] body = request.getInputStream().readNBytes(MAX_BODY + 1);
-        final boolean tooLarge = body.length > MAX_BODY;
+        final byte[] body = request.getInputStream().readNBytes(OcspService.MAX_REQUEST_SIZE + 1);
+        final boolean tooLarge = body.length > OcspService.MAX_REQUEST_SIZE;
         if (tooLarge && LOGGER.isWarnEnabled()) {
-            LOGGER.warn("OCSP POST body on custom path is larger than {} bytes", MAX_BODY);
+            LOGGER.warn(
+                    "OCSP POST body on custom path is larger than {} bytes",
+                    OcspService.MAX_REQUEST_SIZE);
         }
         return tooLarge || body.length == 0 ? null : body;
     }

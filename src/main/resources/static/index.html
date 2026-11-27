@@ -508,8 +508,9 @@
     try {
       const paths = await ocspRequest("/paths");
       document.getElementById("ocsp-paths").replaceChildren(...paths.map((p) => new Option(p, p)));
+      const basePath = location.pathname.replace(/\/(?:index\.html)?$/, "");
       showResult("ocsp-paths-result", true, paths.length
-        ? paths.map((p) => location.origin + p).join("\n") : "No custom path registered.");
+        ? paths.map((p) => location.origin + basePath + p).join("\n") : "No custom path registered.");
     } catch (e) { showResult("ocsp-paths-result", false, String(e)); }
   }
   document.getElementById("ocsp-path-form").addEventListener("submit", async (event) => {

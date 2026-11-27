@@ -111,6 +111,7 @@ public final class OcspTestPki {
                 switch (hash) {
                     case "SHA-1" -> CertificateID.HASH_SHA1;
                     case "SHA-256" -> new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha256);
+                    case "SHA-384" -> new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha384);
                     case "SHA-512" -> new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha512);
                     default -> throw new IllegalArgumentException("Unsupported hash: " + hash);
                 };

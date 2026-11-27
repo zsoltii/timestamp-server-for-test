@@ -94,6 +94,31 @@ class OcspCustomPathFilterTest {
     }
 
     @Test
+    void postOnSubPathOfCustomPathContinuesTheFilterChain() throws Exception {
+        when(service.customPathRemainder("/ca/ocsp/extra")).thenReturn("extra");
+        final MockHttpServletRequest request = new MockHttpServletRequest("POST", "/ca/ocsp/extra");
+        final MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        assertThat(response.getContentAsByteArray()).isEmpty();
+    }
+
+    @Test
+    void otherMethodOnSubPathOfCustomPathContinuesTheFilterChain() throws Exception {
+        when(service.customPathRemainder("/ca/ocsp/extra")).thenReturn("extra");
+        final MockHttpServletRequest request =
+                new MockHttpServletRequest("DELETE", "/ca/ocsp/extra");
+        final MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
     void otherPathsContinueTheFilterChain() throws Exception {
         final MockHttpServletRequest request = new MockHttpServletRequest("POST", "/unrelated");
         final MockHttpServletResponse response = new MockHttpServletResponse();

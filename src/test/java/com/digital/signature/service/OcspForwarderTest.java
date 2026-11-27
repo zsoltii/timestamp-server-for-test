@@ -80,6 +80,15 @@ class OcspForwarderTest {
     }
 
     @Test
+    void oversizedAnswerFails() {
+        answer = new byte[1_048_577];
+
+        assertThatThrownBy(() -> forwarder.forward(url(), new byte[] {1}))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("too large");
+    }
+
+    @Test
     void unreachableResponderFails() throws Exception {
         final int freePort;
         try (ServerSocket socket = new ServerSocket(0)) {

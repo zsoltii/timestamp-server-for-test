@@ -67,7 +67,7 @@ public class OcspService {
     private static final String STATUS_GOOD = "GOOD";
     private static final String STATUS_REVOKED = "REVOKED";
     private static final String STATUS_UNKNOWN = "UNKNOWN";
-    private static final int MAX_REQUEST_SIZE = 65_536;
+    public static final int MAX_REQUEST_SIZE = 65_536;
     private static final int SUPPORTED_VERSION = 1;
     private static final CertificateStatus UNKNOWN_STATUS = new UnknownStatus();
     private static final java.util.regex.Pattern CUSTOM_PATH =
@@ -550,6 +550,8 @@ public class OcspService {
         if ("/".equals(normalized)
                 || normalized.contains("/./")
                 || normalized.contains("/../")
+                || normalized.endsWith("/.")
+                || normalized.endsWith("/..")
                 || RESERVED_PATH.matcher(normalized).find()) {
             throw new IllegalArgumentException(
                     "OCSP path is reserved or too general: " + normalized);
@@ -576,21 +578,34 @@ public class OcspService {
      * @return DER encoded OCSP response
      */
     public byte[] respond(final byte[] requestBytes, final boolean alreadyForwarded) {
-        final URI target = alreadyForwarded ? null : forwardTarget(requestBytes);
-        return target == null ? respondLocally(requestBytes) : forward(target, requestBytes);
+        final RequestCheck check = parseAndValidateRequest(requestBytes);
+        final byte[] response;
+        if (check.request() == null) {
+            logMalformed(check.reason());
+            response = error(OCSPRespBuilder.MALFORMED_REQUEST);
+        } else {
+            final DispatchResult dispatch =
+                    dispatchLocallyOrSelectForward(check.request(), alreadyForwarded);
+            response =
+                    dispatch.forwardTarget() == null
+                            ? dispatch.localResponse()
+                            : forward(dispatch.forwardTarget(), requestBytes);
+        }
+        return response;
     }
 
-    private synchronized URI forwardTarget(final byte[] requestBytes) {
-        URI target = null;
-        if (forwardingEnabled) {
-            final OCSPReq request = parseAndValidateRequest(requestBytes).request();
-            if (request != null
-                    && unsupportedHashReason(request) == null
-                    && noCertificateMatchesAProfile(request)) {
-                target = forwardingUrl;
-            }
+    private record DispatchResult(byte[] localResponse, URI forwardTarget) {}
+
+    private synchronized DispatchResult dispatchLocallyOrSelectForward(
+            final OCSPReq request, final boolean alreadyForwarded) {
+        logRequest(request);
+        final DispatchResult result;
+        if (!alreadyForwarded && forwardingEnabled && noCertificateMatchesAProfile(request)) {
+            result = new DispatchResult(null, forwardingUrl);
+        } else {
+            result = new DispatchResult(buildResponse(request), null);
         }
-        return target;
+        return result;
     }
 
     private boolean noCertificateMatchesAProfile(final OCSPReq request) {
@@ -687,18 +702,6 @@ public class OcspService {
         return uri;
     }
 
-    private synchronized byte[] respondLocally(final byte[] requestBytes) {
-        final RequestCheck check = parseAndValidateRequest(requestBytes);
-        final byte[] response;
-        if (check.request() == null) {
-            logMalformed(check.reason());
-            response = error(OCSPRespBuilder.MALFORMED_REQUEST);
-        } else {
-            response = buildResponse(check.request());
-        }
-        return response;
-    }
-
     private record RequestCheck(OCSPReq request, String reason) {}
 
     private static RequestCheck parseAndValidateRequest(final byte[] requestBytes) {
@@ -792,7 +795,6 @@ public class OcspService {
         try {
             final DigestCalculatorProvider digests =
                     new JcaDigestCalculatorProviderBuilder().build();
-            logRequest(request);
             final String unsupportedHash = unsupportedHashReason(request);
             if (unsupportedHash == null) {
                 final Optional<Profile> selected = selectProfile(request, digests);

@@ -3,6 +3,7 @@ package com.digital.signature;
 import com.digital.signature.service.OcspService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
@@ -48,7 +49,8 @@ public class TimestampServerApplication {
     }
 
     @Bean
-    public WebSecurityCustomizer ocspFirewall(final OcspService ocspService) {
+    public WebSecurityCustomizer ocspFirewall(
+            final ObjectProvider<OcspService> ocspServiceProvider) {
         final StrictHttpFirewall standard = new StrictHttpFirewall();
         final StrictHttpFirewall ocsp = new StrictHttpFirewall();
         ocsp.setAllowUrlEncodedSlash(true);
@@ -61,14 +63,16 @@ public class TimestampServerApplication {
                             final HttpServletRequest request) {
                         final String uri = request.getRequestURI();
                         final String prefix = request.getContextPath() + "/api/ocsp/responder/";
+                        final OcspService ocspService = ocspServiceProvider.getIfAvailable();
+                        final boolean customPath =
+                                ocspService != null
+                                        && ocspService.customPathRemainder(
+                                                        uri.substring(
+                                                                request.getContextPath().length()))
+                                                != null;
                         final boolean ocspGet =
                                 "GET".equals(request.getMethod())
-                                        && (uri.startsWith(prefix)
-                                                || ocspService.customPathRemainder(
-                                                                uri.substring(
-                                                                        request.getContextPath()
-                                                                                .length()))
-                                                        != null);
+                                        && (uri.startsWith(prefix) || customPath);
                         return (ocspGet ? ocsp : standard).getFirewalledRequest(request);
                     }
 
