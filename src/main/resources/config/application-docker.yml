@@ -31,3 +31,12 @@ timestamp:
   certificate-subject: CN=Docker Timestamp Authority, O=Digital Signature, C=HU
   policy-id: 1.3.6.1.4.1.13762.3
   validity-days: 365
+
+# OCSP responder: forwarding of requests whose certificates match no issuer profile.
+# These are the startup defaults (web UI checkbox and URL); they can be changed at runtime in the
+# web UI or with PUT /api/ocsp/forwarding, and a restart restores these values.
+# Environment variables: OCSP_FORWARDING_ENABLED, OCSP_FORWARDING_URL
+ocsp:
+  forwarding:
+    enabled: false
+    # url: http://ocsp.example.com/ocsp

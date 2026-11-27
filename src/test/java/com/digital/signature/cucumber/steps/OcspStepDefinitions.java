@@ -41,7 +41,9 @@ public class OcspStepDefinitions {
                     "successful", OCSPRespBuilder.SUCCESSFUL,
                     "malformedRequest", OCSPRespBuilder.MALFORMED_REQUEST,
                     "internalError", OCSPRespBuilder.INTERNAL_ERROR,
-                    "unauthorized", OCSPRespBuilder.UNAUTHORIZED);
+                    "unauthorized", OCSPRespBuilder.UNAUTHORIZED,
+                    "tryLater", OCSPRespBuilder.TRY_LATER,
+                    "sigRequired", OCSPRespBuilder.SIG_REQUIRED);
 
     private final Environment environment;
     private final OcspService ocspService;
@@ -51,6 +53,9 @@ public class OcspStepDefinitions {
     private final Map<String, Ca> cas = new HashMap<>();
     private HttpResponse<byte[]> adminResponse;
     private OCSPResp ocspResponse;
+    private com.sun.net.httpserver.HttpServer upstream;
+    private final java.util.concurrent.atomic.AtomicInteger upstreamCalls =
+            new java.util.concurrent.atomic.AtomicInteger();
 
     @Autowired
     public OcspStepDefinitions(final Environment environment, final OcspService ocspService) {
@@ -64,6 +69,77 @@ public class OcspStepDefinitions {
         ocspService.profiles().forEach(profile -> ocspService.deleteProfile(profile.id()));
         ocspService.setTimes(new OcspService.Times(null, null));
         ocspService.customPaths().forEach(ocspService::removeCustomPath);
+        ocspService.setForwarding(new OcspService.Forwarding(false, null));
+        if (upstream != null) {
+            upstream.stop(0);
+            upstream = null;
+        }
+    }
+
+    @Given("an upstream OCSP responder answering {string}")
+    public void anUpstreamOcspResponderAnswering(final String status) throws Exception {
+        final byte[] answer =
+                new OCSPRespBuilder().build(OCSP_STATUSES.get(status), null).getEncoded();
+        upstream =
+                com.sun.net.httpserver.HttpServer.create(
+                        new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        upstream.createContext(
+                "/upstream/ocsp",
+                exchange -> {
+                    upstreamCalls.incrementAndGet();
+                    exchange.getRequestBody().readAllBytes();
+                    exchange.getResponseHeaders().add("Content-Type", "application/ocsp-response");
+                    exchange.sendResponseHeaders(200, answer.length);
+                    try (java.io.OutputStream out = exchange.getResponseBody()) {
+                        out.write(answer);
+                    }
+                });
+        upstream.start();
+    }
+
+    @Given("OCSP forwarding is enabled to the upstream responder")
+    public void forwardingEnabledToUpstream() throws Exception {
+        putForwarding(
+                true, "http://127.0.0.1:" + upstream.getAddress().getPort() + "/upstream/ocsp");
+        assertThat(adminResponse.statusCode()).isEqualTo(204);
+    }
+
+    @Given("OCSP forwarding is enabled to this server's own responder")
+    public void forwardingEnabledToItself() throws Exception {
+        putForwarding(true, uri("/api/ocsp/responder").toString());
+        assertThat(adminResponse.statusCode()).isEqualTo(204);
+    }
+
+    @Given("OCSP forwarding is disabled with the upstream URL kept")
+    public void forwardingDisabled() throws Exception {
+        putForwarding(
+                false, "http://127.0.0.1:" + upstream.getAddress().getPort() + "/upstream/ocsp");
+        assertThat(adminResponse.statusCode()).isEqualTo(204);
+    }
+
+    @When("I enable OCSP forwarding without URL")
+    public void iEnableForwardingWithoutUrl() throws Exception {
+        putForwarding(true, null);
+    }
+
+    @Then("the upstream OCSP responder received {int} request(s)")
+    public void theUpstreamReceived(final int count) {
+        assertThat(upstreamCalls.get()).isEqualTo(count);
+    }
+
+    private void putForwarding(final boolean enabled, final String url) throws Exception {
+        adminResponse =
+                send(
+                        HttpRequest.newBuilder(uri("/api/ocsp/forwarding"))
+                                .header("Content-Type", "application/json")
+                                .PUT(
+                                        HttpRequest.BodyPublishers.ofString(
+                                                "{\"enabled\":"
+                                                        + enabled
+                                                        + ",\"url\":"
+                                                        + (url == null ? "null" : "\"" + url + "\"")
+                                                        + "}"))
+                                .build());
     }
 
     @Given("the OCSP simulated time is {string}")

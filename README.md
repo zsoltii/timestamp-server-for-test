@@ -34,7 +34,9 @@ documents with a time **in the past or in the future**.
 - **RFC 3161 timestamp service**: answers standard `application/timestamp-query` requests with
   `application/timestamp-reply` responses, so any RFC 3161 client can use it.
 - **OCSP test responder**: signs RFC 6960 responses with separately uploaded issuer-authorized keys. It works as a
-  blacklist (every certificate is `GOOD` unless listed as revoked) and supports simulated response times.
+  blacklist (every certificate is `GOOD` unless listed as revoked) and supports simulated response times, extra
+  responder URL paths (to match the fixed OCSP URL in certificates), optional forwarding of requests for unknown CAs
+  to another responder, and detailed diagnostic logging.
 - **Time control**: a fixed time that is written into *every* timestamp (set once on the server, clients send plain
   requests), or a one-off custom time per request. Times can be in the past or in the future.
 - **Flexible time format**: `yyyy-MM-dd HH:mm:ssZ` with offsets (`+0200`), abbreviations (`CEST`) or region ids
@@ -42,8 +44,8 @@ documents with a time **in the past or in the future**.
 - **Signing key management**: self-signed key generated on startup, a PKCS12 keystore from the configuration, or a
   PKCS12 file uploaded at runtime without restarting the server.
 - **Web UI**: a single page with two tabs. *Timestamp server* holds the status, the signing certificate, the fixed
-  time, one-off `.tsr` files and the key update; *OCSP responder* holds the issuer profiles, simulated times and
-  certificate statuses.
+  time, one-off `.tsr` files and the key update; *OCSP responder* holds the issuer profiles, custom responder URL
+  paths, forwarding, simulated times and certificate statuses.
 - **Other formats**: simple ISO 8601 and Unix epoch time endpoints.
 - **Operations**: Actuator health/metrics endpoints, Docker images (native and JVM), graceful shutdown, CORS enabled.
 
@@ -126,8 +128,17 @@ timestamp server and the OCSP responder can be managed separately. The selected 
 | **Timestamp with a custom time**           | Pick a file (its SHA-256 is computed in the browser, the file is not uploaded) or paste a SHA-256 hash, optionally enter a time, and the `.tsr` response is downloaded. |
 | **Replace signing key**                    | Uploads a PKCS12 file and replaces the signing key (see [Signing key and certificate](#signing-key-and-certificate)). |
 
-**OCSP responder** tab: the [OCSP test responder](#ocsp-test-responder) section, with issuer profile upload and
-deletion, the simulated `thisUpdate`/`nextUpdate` times and the certificate statuses of the selected profile.
+**OCSP responder** tab ([OCSP test responder](#ocsp-test-responder)). The panel can be widened with the mouse (handle
+in the bottom-right corner), but not made narrower than its default width.
+
+| Part                                         | What it does                                                                                  |
+|----------------------------------------------|-----------------------------------------------------------------------------------------------|
+| **Issuer profile upload**                    | Profile ID, then the issuer CA certificate (PEM or DER), then the signer PKCS12 with its keystore password, optional key password and alias. |
+| **Issuer profile**                           | Selects the profile whose statuses are shown and edited; deletes a profile.                   |
+| **Custom responder URL paths**               | Adds or removes extra paths (e.g. `/ejbca/publicweb/status/ocsp`) served like `/api/ocsp/responder`; shows the full URLs. |
+| **Forward requests without issuer profile**  | Checkbox (off by default) and an `http`/`https` URL; requests of unknown CAs are passed to that responder. |
+| **OCSP times**                               | Simulated `thisUpdate`/`nextUpdate`, or the current time.                                     |
+| **Certificate statuses**                     | Blacklist entries of the selected profile: `REVOKED` (with time and reason), `UNKNOWN` or explicit `GOOD`. |
 
 The page uses relative API URLs, so it also works under a context path behind a reverse proxy.
 If the UI is published under `/timestamp`, open `/timestamp/` (with the trailing slash) and
@@ -194,6 +205,7 @@ own appropriate trust anchors and must validate the chain.
 | `/api/ocsp/profiles/{id}/statuses` | GET | List explicitly configured certificate statuses (the exceptions to the `GOOD` default) |
 | `/api/ocsp/profiles/{id}/statuses/{serial}` | PUT / DELETE | Set or remove a status by hexadecimal serial; removing it restores the `GOOD` default |
 | `/api/ocsp/times` | GET / PUT / DELETE | Read, replace or clear simulated times |
+| `/api/ocsp/forwarding` | GET / PUT | Read or set forwarding of requests without issuer profile: `{"enabled":true,"url":"http://host/ocsp"}` (off by default) |
 | `/api/ocsp/paths` | GET / POST / DELETE | List, register (`{"path":"/ca/ocsp"}`) or remove (`?path=/ca/ocsp`) custom responder URL paths |
 
 Upload an issuer certificate (PEM or DER) and its authorized signer PKCS12. `keyAlias` is optional if the
@@ -232,6 +244,40 @@ A path starts with `/` and may contain letters, digits and `. _ ~ - /`. `/`, `/a
 and `/index.html` are rejected with HTTP 400. Paths are kept in memory only and disappear at restart. Several paths can
 be registered at the same time.
 
+**Forwarding requests without issuer profile.** Off by default. When it is enabled (web UI: OCSP tab, *Forward
+requests without issuer profile* checkbox and URL; or the API), a well-formed request in which **no** certificate
+matches an issuer profile is sent with HTTP POST to the given `http`/`https` URL, and the answer of that responder
+is returned byte for byte, as if this server had produced it. This lets a test environment answer its own test CAs
+and pass every other CA to a real responder.
+
+```bash
+curl -X PUT http://localhost:8080/api/ocsp/forwarding -H 'Content-Type: application/json' \
+  -d '{"enabled":true,"url":"http://ocsp.example.com/ocsp"}'
+curl -X PUT http://localhost:8080/api/ocsp/forwarding -H 'Content-Type: application/json' \
+  -d '{"enabled":false,"url":"http://ocsp.example.com/ocsp"}'     # off, URL kept
+```
+
+- The startup default comes from the configuration (`ocsp.forwarding.enabled`, default `false`, and
+  `ocsp.forwarding.url`; environment variables `OCSP_FORWARDING_ENABLED` / `OCSP_FORWARDING_URL`). Runtime changes
+  in the web UI or the API last until the next restart. An invalid configured URL, or `enabled: true` without URL,
+  stops the server at startup with `Invalid ocsp.forwarding configuration`.
+
+  ```yaml
+  ocsp:
+    forwarding:
+      enabled: true
+      url: http://ocsp.example.com/ocsp
+  ```
+- Requests with a certificate of a configured issuer are always answered locally; a request that mixes a configured
+  and an unknown CA stays `unauthorized`. Malformed requests are not forwarded.
+- If the other responder cannot be reached, does not answer HTTP 200 or does not send an OCSP response, the answer
+  is `tryLater` and the reason is logged at `WARN`. Timeouts: 5 s to connect, 15 s for the whole request.
+- Forwarded requests carry the `X-OCSP-Test-Forwarded` header; a server that receives it does not forward again, so
+  pointing the URL at itself (or at another instance pointing back) cannot loop.
+- Each forward is logged at `INFO` with the target, the OCSP status of the answer and the duration. The setting is
+  kept in memory only. Since anyone who can reach the admin API can set the URL, run the server only on a trusted
+  network.
+
 **Default status (blacklist).** The responder answers `GOOD` for every certificate serial of a configured issuer
 unless a different status is configured for it, so no status has to be set to get positive answers. You only list the
 exceptions: typically `REVOKED` serials (the blacklist). The example above needs no status at all for a
@@ -241,9 +287,10 @@ Serial numbers are hexadecimal. A configured status is `REVOKED` (the usual blac
 OCSP "unknown" status, to test how a client handles it) or `GOOD` (explicit, same as the default). Deleting a
 configured status returns the serial to the `GOOD` default. `REVOKED` requires an ISO 8601 `revocationTime` and may
 include a numeric reason 0–6 or 8–10; it must not be later than `thisUpdate`. Requests for an unknown issuer or mixed
-issuers return an OCSP `unauthorized` response (the default `GOOD` applies only to configured issuers). Malformed
-requests and unsupported critical extensions or issuer hash algorithms
-return `malformedRequest`; operational failures return `internalError`. OCSP protocol errors still use HTTP 200.
+issuers return an OCSP `unauthorized` response (the default `GOOD` applies only to configured issuers); with
+[forwarding](#ocsp-test-responder) enabled, a request for unknown issuers only is answered by the other responder
+instead. Malformed requests and unsupported critical extensions or issuer hash algorithms
+return `malformedRequest`; operational failures return `internalError`; a failed forward returns `tryLater`. OCSP protocol errors still use HTTP 200.
 SHA-1, SHA-256 and SHA-512 issuer hashes and request nonces of 1–32 bytes are supported.
 
 If no fixed time is set, `thisUpdate` and `producedAt` use the actual time and `nextUpdate` is 24 hours later.
@@ -559,6 +606,8 @@ overridden with environment variables, command line arguments (`--timestamp.key-
 | `timestamp.keystore-password`     | *(unset)*                                                | Required with `keystore-path`.                           |
 | `timestamp.key-alias`             | *(unset)*                                                | Required with `keystore-path`.                           |
 | `timestamp.key-password`          | keystore password                                        | Password of the key entry.                               |
+| `ocsp.forwarding.enabled`         | `false`                                                  | Startup default of the OCSP forwarding checkbox (requests without issuer profile). |
+| `ocsp.forwarding.url`             | *(unset)*                                                | Startup default of the OCSP forwarding URL (`http`/`https`); required when enabled. |
 | `management.endpoints.web.exposure.include` | `health,info,metrics,prometheus`               | Exposed Actuator endpoints.                              |
 
 Environment variable form (Spring relaxed binding): `TIMESTAMP_KEYSTORE_PATH`, `TIMESTAMP_KEY_ALIAS`,
@@ -568,12 +617,12 @@ Logging uses the Spring Boot defaults (`INFO`). Each generated timestamp logs
 `Generating timestamp with time: <instant>`. To see every HTTP request (also unknown URLs and wrong methods) while
 diagnosing a client, start with `--logging.level.org.springframework.web.servlet.DispatcherServlet=DEBUG`.
 
-OCSP logging (`OcspService`, `OcspController`, `OcspCustomPathFilter`; levels set in `application.yml`):
+OCSP logging (`OcspService`, `OcspForwarder`, `OcspController`, `OcspCustomPathFilter`; levels set in `application.yml`):
 
 | Level | What is logged |
 |-------|----------------|
-| `WARN`  | Every non-successful OCSP answer with its reason: `malformedRequest` (empty body, not DER, wrong version, bad nonce, unsupported critical extension or hash), `unauthorized` (the requested CertID hashes compared with the expected hashes of every profile, e.g. "different issuer" or "same issuer name but different key"; or the two profiles of a mixed request), `internalError` (signer or issuer not valid at the simulated `thisUpdate`, revocation time after `thisUpdate`). Rejected admin calls with method, URL, HTTP status and reason (400 bad input, 415 wrong `Content-Type`), undecodable GET requests, wrong method on a custom path. A revoked status whose time is after the simulated `thisUpdate` is also warned when it is set. |
-| `INFO`  | Successful answers (profile, signer, `thisUpdate`/`nextUpdate`, status per serial, e.g. `12=GOOD (default)`) and configuration changes: profile stored (new, same CA with statuses kept, or different CA with statuses cleared) or deleted, status set or removed, times set, custom path added or removed. |
+| `WARN`  | Every non-successful OCSP answer with its reason: `malformedRequest` (empty body, not DER, wrong version, bad nonce, unsupported critical extension or hash), `unauthorized` (the requested CertID hashes compared with the expected hashes of every profile, e.g. "different issuer" or "same issuer name but different key"; or the two profiles of a mixed request), `internalError` (signer or issuer not valid at the simulated `thisUpdate`, revocation time after `thisUpdate`). Rejected admin calls with method, URL, HTTP status and reason (400 bad input, 415 wrong `Content-Type`), undecodable GET requests, wrong method on a custom path, failed forwards (`tryLater`: unreachable responder, non-200 HTTP status, empty or non-OCSP answer). A revoked status whose time is after the simulated `thisUpdate` is also warned when it is set. |
+| `INFO`  | Forwarded requests (target URL, OCSP status of the answer, duration) and forwarding setting changes. Successful answers (profile, signer, `thisUpdate`/`nextUpdate`, status per serial, e.g. `12=GOOD (default)`) and configuration changes: profile stored (new, same CA with statuses kept, or different CA with statuses cleared) or deleted, status set or removed, times set, custom path added or removed. |
 | `DEBUG` | Every incoming OCSP request: method, path, size or content type and each CertID (serial, hash algorithm, issuer name and key hashes). |
 | `ERROR` | Unexpected failures while building a response, with stack trace. |
 
@@ -689,8 +738,13 @@ The native build uses resource auto-detection, a static executable and Spring AO
 src/main/java/com/digital/signature
 ├── TimestampServerApplication.java        entry point, security filter chain
 ├── config/       TimeStampConfig, WebConfig (CORS)
-├── controller/   TimestampController, ErrorHandlerController
+├── controller/   TimestampController, ErrorHandlerController,
+│                 OcspController (OCSP protocol and admin API), OcspCustomPathFilter (custom responder paths)
 └── service/      TimestampService         timestamps, time parsing, fixed time, key handling
+                  OcspService              OCSP profiles, statuses, times, custom paths, forwarding
+                  OcspForwarder            HTTP client that forwards requests of unknown CAs
+                  OcspDiagnostics          texts for the OCSP diagnostic log messages
+                  SigningAlgorithm, SigningCertificateInfo   signing algorithm selection, certificate details
 src/main/resources/static/index.html       the web UI
 src/test/...                               unit, integration and Cucumber tests
 ```
@@ -740,7 +794,10 @@ The Cucumber HTML report is written to `target/cucumber-reports/cucumber.html`.
 | Timestamp certificate changes at every restart                          | Expected with the generated key. Configure `timestamp.keystore-*` to keep one certificate.                   |
 | `415 Unsupported Media Type`                                            | Send `Content-Type: application/timestamp-query`.                                                            |
 | Response status is not `granted` although HTTP is `200`                 | The request was rejected as an RFC 3161 failure, e.g. an unsupported hash algorithm (allowed: SHA-1, SHA-256, SHA-512) or a different policy OID. |
-| OCSP answer is `unauthorized`                                           | Look for `OCSP response unauthorized:` in the log. It lists the requested issuer hashes and what each profile expects: "different issuer" means the uploaded issuer certificate is not the one that issued the checked certificate (e.g. root vs. intermediate); "same issuer name but different key" means another or re-keyed CA; "no OCSP issuer profile is configured" means nothing was uploaded (or the server restarted); "mixes issuers" means one request contains certificates of several CAs. |
+| OCSP answer is `unauthorized`                                           | Look for `OCSP response unauthorized:` in the log. It lists the requested issuer hashes and what each profile expects: "different issuer" means the uploaded issuer certificate is not the one that issued the checked certificate (e.g. root vs. intermediate); "same issuer name but different key" means another or re-keyed CA; "no OCSP issuer profile is configured" means nothing was uploaded (or the server restarted); "mixes issuers" means one request contains certificates of several CAs. To let another responder answer unknown CAs, enable forwarding. |
+| `openssl ocsp -url …` fails with HTTP `404` and `application/problem+json`  | The URL path is not registered. Custom paths are kept in memory only, so register it again after a restart (OCSP tab or `POST /api/ocsp/paths`); `GET /api/ocsp/paths` lists the current ones. |
+| OCSP answer is `tryLater`                                               | Forwarding is enabled but the other responder failed; the `WARN` line `OCSP response tryLater: forwarding to … failed:` gives the reason. Check the URL in the OCSP tab. |
+| `openssl ocsp` prints `Verify error: unable to get issuer certificate`  | The response is fine, but `-CAfile` does not contain the whole chain up to the root. Add the root CA certificate to the file or use `-partial_chain`. |
 | OCSP answer is `malformedRequest` or `internalError`                    | The `WARN` line `OCSP response malformedRequest:` / `internalError` gives the reason, e.g. a signer not valid at the simulated time or a revocation time after `thisUpdate`. |
 | Server does not start after configuring a keystore                      | Wrong path, password or alias; the log shows the cause (`Failed to initialize TimestampService`).            |
 

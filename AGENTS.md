@@ -2,6 +2,37 @@
 
 ## Build System
 
+### JDK for building (important)
+- Always build with the IDE project JDK (Temurin 25, `.idea/misc.xml` `project-jdk-name=temurin-25`):
+  `export JAVA_HOME=/home/zsoltii/.jdks/temurin-25.0.4.1`, or prefix every command with
+  `JAVA_HOME=/home/zsoltii/.jdks/temurin-25.0.4.1`.
+- Do not rely on the default `java` of the shell (a newer JDK): with it the PMD run fails with parser
+  `StackOverflowError`s and bogus violations.
+
+### Full build with tests, Spotless and PMD
+```bash
+JAVA_HOME=/home/zsoltii/.jdks/temurin-25.0.4.1 ./mvnw -q spotless:apply
+JAVA_HOME=/home/zsoltii/.jdks/temurin-25.0.4.1 ./mvnw clean install
+```
+- `clean install` (or `clean verify`) compiles, runs all unit and Cucumber tests, checks Spotless and runs
+  `pmd:check`. `clean package` stops before the `verify` phase and does **not** run PMD.
+- Short result summary:
+  `... ./mvnw clean install 2>&1 | grep -E "PMD Fail|Tests run: [0-9]+, F.*Skipped: [0-9]+$|<<< FAIL|BUILD"`
+- Compile only (fast check): `JAVA_HOME=... ./mvnw -q compile` (add `test-compile` for the tests).
+
+### PMD
+- Ruleset: `pmd-custom-ruleset.xml` (almost all categories: final parameters/locals, OnlyOneReturn,
+  no null assignment, guarded log statements, `/* default */` comment on package-private members,
+  no literals in `if` conditions, short/long names, etc.). Test sources are excluded.
+- Run PMD alone after compiling: `JAVA_HOME=... ./mvnw -q compile pmd:check`
+  (report: `target/pmd.xml`; violations are printed as `PMD Failure: <class>:<line> Rule:<rule>`).
+- The build fails on any violation; fix the code instead of suppressing rules. Use
+  `@SuppressWarnings("PMD.<Rule>")` only for a justified case (e.g. `PMD.ShortVariable` on a record
+  component named `id`).
+- Typical fixes: guard logs with `if (LOGGER.isInfoEnabled())`, single exit variable instead of
+  multiple `return`s, constants instead of literals in `if`, `final` on parameters and locals.
+- Do not use `var` in Java code.
+
 ### Maven Commands
 - Use the Maven wrapper: `./mvnw`
 - Build project: `./mvnw clean package`

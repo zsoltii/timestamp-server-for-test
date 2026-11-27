@@ -26,11 +26,42 @@ class OcspControllerTest {
 
     @Test
     void postReturnsProtocolErrorWithCorrectMediaTypeForMalformedDer() throws Exception {
-        ResponseEntity<byte[]> response = controller.post(new byte[] {1, 2});
+        ResponseEntity<byte[]> response = controller.post(new byte[] {1, 2}, null);
         assertThat(response.getHeaders().getContentType().toString())
                 .isEqualTo("application/ocsp-response");
         assertThat(new OCSPResp(response.getBody()).getStatus())
                 .isEqualTo(OCSPRespBuilder.MALFORMED_REQUEST);
+    }
+
+    @Test
+    void forwardingSettingsCanBeReadAndReplaced() {
+        assertThat(controller.forwarding()).isEqualTo(new OcspService.Forwarding(false, null));
+
+        assertThat(
+                        controller
+                                .putForwarding(
+                                        new OcspService.Forwarding(true, "http://up.example/ocsp"))
+                                .getStatusCode()
+                                .value())
+                .isEqualTo(204);
+        assertThat(controller.forwarding())
+                .isEqualTo(new OcspService.Forwarding(true, "http://up.example/ocsp"));
+    }
+
+    @Test
+    void forwardingSettingsRejectEnabledWithoutUrl() {
+        assertThatThrownBy(() -> controller.putForwarding(new OcspService.Forwarding(true, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void postPassesTheForwardedMarkerToTheService() {
+        OcspService mockService = mock(OcspService.class);
+        when(mockService.respond(new byte[] {1}, true)).thenReturn(new byte[] {2});
+
+        assertThat(new OcspController(mockService).post(new byte[] {1}, "1").getBody())
+                .containsExactly(2);
+        verify(mockService).respond(new byte[] {1}, true);
     }
 
     @Test
@@ -76,11 +107,11 @@ class OcspControllerTest {
         OcspService mockService = mock(OcspService.class);
         OcspController target = new OcspController(mockService);
         byte[] decoded = new byte[] {(byte) 0xff, (byte) 0xee};
-        when(mockService.respond(decoded)).thenReturn(new byte[] {1});
+        when(mockService.respond(decoded, false)).thenReturn(new byte[] {1});
         MockHttpServletRequest request =
                 new MockHttpServletRequest("GET", "/api/ocsp/responder/%2F%2B4%3D");
         assertThat(target.get(request).getBody()).containsExactly(1);
-        verify(mockService).respond(decoded);
+        verify(mockService).respond(decoded, false);
     }
 
     @Test

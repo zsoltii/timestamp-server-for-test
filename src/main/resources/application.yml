@@ -29,6 +29,16 @@ timestamp:
   # key-alias: timestampKey
   # key-password: keyPassword
 
+
+# OCSP responder: forwarding of requests whose certificates match no issuer profile.
+# These are the startup defaults (web UI checkbox and URL); they can be changed at runtime in the
+# web UI or with PUT /api/ocsp/forwarding, and a restart restores these values.
+# Environment variables: OCSP_FORWARDING_ENABLED, OCSP_FORWARDING_URL
+ocsp:
+  forwarding:
+    enabled: false
+    # url: http://ocsp.example.com/ocsp
+
 # Log levels. OCSP problems (malformedRequest, unauthorized, internalError, rejected admin calls)
 # are logged at WARN with the reason, successful OCSP answers and admin changes at INFO. Set the
 # OCSP loggers to DEBUG to also log every incoming request with its CertIDs.

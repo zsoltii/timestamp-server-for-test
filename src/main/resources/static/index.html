@@ -88,6 +88,8 @@
   }
   .tabs button[role=tab]:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
   [role=tabpanel][hidden] { display: none; }
+  label.inline { display: flex; align-items: center; gap: .4rem; }
+  input[type=url] { width: 100%; box-sizing: border-box; padding: .4rem .5rem; margin-top: .2rem; }
   /* The OCSP tab can be widened with the mouse (bottom-right handle), never below its default width. */
   #tab-ocsp {
     box-sizing: border-box;
@@ -261,6 +263,17 @@
   <select id="ocsp-paths"></select>
   <button type="button" id="ocsp-delete-path">Remove path</button>
   <div id="ocsp-paths-result" class="result" role="status" aria-live="polite"></div>
+  <h3>Forward requests without issuer profile</h3>
+  <p class="note">When enabled, an OCSP request whose certificates match none of the issuer profiles is sent to
+    this URL (HTTP POST) and its answer is returned unchanged, as if this server had answered. Off by default.
+    A request that already came from a forwarding test server is not forwarded again.</p>
+  <form id="ocsp-forwarding-form">
+    <label class="inline"><input type="checkbox" id="ocsp-forwarding-enabled" /> Forward requests without issuer profile</label>
+    <label for="ocsp-forwarding-url">Forwarding OCSP responder URL (http or https)</label>
+    <input type="url" id="ocsp-forwarding-url" placeholder="http://ocsp.example.com/ocsp" />
+    <button type="submit">Save forwarding</button>
+  </form>
+  <div id="ocsp-forwarding-result" class="result" role="status" aria-live="polite"></div>
   <form id="ocsp-times-form">
     <label for="ocsp-start">thisUpdate / producedAt (ISO 8601, e.g. 2027-01-01T00:00:00Z; empty: now)</label>
     <input type="text" id="ocsp-start" />
@@ -515,6 +528,29 @@
       await loadOcspPaths();
     } catch (e) { showResult("ocsp-paths-result", false, String(e)); }
   });
+  async function loadOcspForwarding() {
+    try {
+      const forwarding = await ocspRequest("/forwarding");
+      document.getElementById("ocsp-forwarding-enabled").checked = forwarding.enabled;
+      document.getElementById("ocsp-forwarding-url").value = forwarding.url || "";
+      showResult("ocsp-forwarding-result", true, forwarding.enabled
+        ? "Forwarding enabled to " + forwarding.url : "Forwarding disabled.");
+    } catch (e) { showResult("ocsp-forwarding-result", false, String(e)); }
+  }
+  document.getElementById("ocsp-forwarding-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const enabled = document.getElementById("ocsp-forwarding-enabled").checked;
+    const url = document.getElementById("ocsp-forwarding-url").value.trim();
+    if (enabled && !url) {
+      showResult("ocsp-forwarding-result", false, "Enter the forwarding URL first.");
+      return;
+    }
+    try {
+      await ocspRequest("/forwarding", { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled, url: url || null }) });
+      await loadOcspForwarding();
+    } catch (e) { showResult("ocsp-forwarding-result", false, String(e)); }
+  });
   async function loadOcspTimes() {
     try {
       const times = await ocspRequest("/times");
@@ -574,6 +610,7 @@
   loadOcspProfiles();
   loadOcspTimes();
   loadOcspPaths();
+  loadOcspForwarding();
 
   document.getElementById("custom-time-form").addEventListener("submit", async (event) => {
     event.preventDefault();

@@ -1,5 +1,6 @@
 package com.digital.signature.controller;
 
+import com.digital.signature.service.OcspForwarder;
 import com.digital.signature.service.OcspService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -48,9 +49,12 @@ public class OcspCustomPathFilter extends OncePerRequestFilter {
         if (remainder == null) {
             chain.doFilter(request, response);
         } else if (HttpMethod.POST.matches(request.getMethod())) {
-            write(response, service.respond(readBody(request)));
+            write(response, service.respond(readBody(request), isForwarded(request)));
         } else if (HttpMethod.GET.matches(request.getMethod())) {
-            write(response, service.respond(OcspController.decodeGetRequest(remainder)));
+            write(
+                    response,
+                    service.respond(
+                            OcspController.decodeGetRequest(remainder), isForwarded(request)));
         } else {
             if (LOGGER.isWarnEnabled()) {
                 LOGGER.warn(
@@ -61,6 +65,10 @@ public class OcspCustomPathFilter extends OncePerRequestFilter {
             response.setHeader(HttpHeaders.ALLOW, "GET, POST");
             response.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
         }
+    }
+
+    private static boolean isForwarded(final HttpServletRequest request) {
+        return request.getHeader(OcspForwarder.FORWARDED_HEADER) != null;
     }
 
     private static byte[] readBody(final HttpServletRequest request) throws IOException {

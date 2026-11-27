@@ -1,6 +1,8 @@
 package com.digital.signature.controller;
 
+import com.digital.signature.service.OcspForwarder;
 import com.digital.signature.service.OcspService;
+import com.digital.signature.service.OcspService.Forwarding;
 import com.digital.signature.service.OcspService.ProfileInfo;
 import com.digital.signature.service.OcspService.StatusEntry;
 import com.digital.signature.service.OcspService.Times;
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -49,13 +52,16 @@ public class OcspController {
 
     /** Responds to a DER encoded OCSP request. */
     @PostMapping(value = "/responder", consumes = REQUEST_TYPE, produces = RESPONSE_TYPE)
-    public ResponseEntity<byte[]> post(@RequestBody(required = false) final byte[] request) {
+    public ResponseEntity<byte[]> post(
+            @RequestBody(required = false) final byte[] request,
+            @RequestHeader(value = OcspForwarder.FORWARDED_HEADER, required = false)
+                    final String forwarded) {
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug(
                     "OCSP POST /api/ocsp/responder, {} bytes",
                     request == null ? 0 : request.length);
         }
-        return response(service.respond(request));
+        return response(service.respond(request, forwarded != null));
     }
 
     /** Responds to the URL-encoded base64 request specified by RFC 6960. */
@@ -70,7 +76,9 @@ public class OcspController {
             }
             decoded = decodeGetRequest(uri.substring(prefix.length()));
         }
-        return response(service.respond(decoded));
+        return response(
+                service.respond(
+                        decoded, request.getHeader(OcspForwarder.FORWARDED_HEADER) != null));
     }
 
     /** Decodes the URL-encoded base64 part of an OCSP GET URL; null when invalid. */
@@ -97,6 +105,19 @@ public class OcspController {
             }
         }
         return decoded;
+    }
+
+    /** Returns the forwarding settings for requests that match no issuer profile. */
+    @GetMapping("/forwarding")
+    public Forwarding forwarding() {
+        return service.forwarding();
+    }
+
+    /** Replaces the forwarding settings, e.g. {@code {"enabled":true,"url":"http://host/ocsp"}}. */
+    @PutMapping("/forwarding")
+    public ResponseEntity<Void> putForwarding(@RequestBody final Forwarding forwarding) {
+        service.setForwarding(forwarding);
+        return ResponseEntity.noContent().build();
     }
 
     /** Lists the custom URL paths that are also served by the OCSP responder. */

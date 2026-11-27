@@ -3,6 +3,8 @@ package com.digital.signature.service;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigInteger;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.security.KeyStore;
@@ -39,6 +41,7 @@ import org.bouncycastle.cert.ocsp.CertificateID;
 import org.bouncycastle.cert.ocsp.CertificateStatus;
 import org.bouncycastle.cert.ocsp.OCSPException;
 import org.bouncycastle.cert.ocsp.OCSPReq;
+import org.bouncycastle.cert.ocsp.OCSPResp;
 import org.bouncycastle.cert.ocsp.OCSPRespBuilder;
 import org.bouncycastle.cert.ocsp.Req;
 import org.bouncycastle.cert.ocsp.RevokedStatus;
@@ -48,6 +51,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.ContentVerifier;
 import org.bouncycastle.operator.DigestCalculatorProvider;
+import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
 import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
 import org.slf4j.Logger;
@@ -75,11 +79,36 @@ public class OcspService {
     private final Map<String, Profile> profileMap = new LinkedHashMap<>();
     private Instant thisUpdate;
     private Instant nextUpdate;
+    private final OcspForwarder forwarder;
+    private boolean forwardingEnabled;
+    private URI forwardingUrl;
+
+    /** Creates the service with the default HTTP forwarder. */
+    public OcspService() {
+        this(new OcspForwarder());
+    }
+
+    /**
+     * Creates the service with the given forwarder (used for requests without issuer profile).
+     *
+     * @param forwarder forwarder to another OCSP responder
+     */
+    public OcspService(final OcspForwarder forwarder) {
+        this.forwarder = forwarder;
+    }
 
     @SuppressWarnings("PMD.ShortVariable")
     public record ProfileInfo(String id, String issuer, String signer) {}
 
     public record Times(Instant thisUpdate, Instant nextUpdate) {}
+
+    /**
+     * Forwarding of requests whose certificates match no issuer profile.
+     *
+     * @param enabled whether such requests are forwarded (default: false)
+     * @param url HTTP(S) URL of the other OCSP responder
+     */
+    public record Forwarding(boolean enabled, String url) {}
 
     public record StatusEntry(
             String serialNumber, String status, Instant revocationTime, Integer reason) {}
@@ -532,7 +561,133 @@ public class OcspService {
      * Generates a DER OCSP response; malformed and unauthorized requests receive protocol errors.
      * Every non-successful answer is logged at WARN with its reason; successful answers at INFO.
      */
-    public synchronized byte[] respond(final byte[] requestBytes) {
+    public byte[] respond(final byte[] requestBytes) {
+        return respond(requestBytes, false);
+    }
+
+    /**
+     * Generates a DER OCSP response. When forwarding is enabled and no certificate of the request
+     * matches an issuer profile, the request is sent to the forwarding URL and its answer is
+     * returned unchanged; a failed forward answers {@code tryLater}.
+     *
+     * @param requestBytes DER encoded OCSP request
+     * @param alreadyForwarded true when the request came from another forwarding responder; such a
+     *     request is never forwarded again, which prevents forwarding loops
+     * @return DER encoded OCSP response
+     */
+    public byte[] respond(final byte[] requestBytes, final boolean alreadyForwarded) {
+        final URI target = alreadyForwarded ? null : forwardTarget(requestBytes);
+        return target == null ? respondLocally(requestBytes) : forward(target, requestBytes);
+    }
+
+    private synchronized URI forwardTarget(final byte[] requestBytes) {
+        URI target = null;
+        if (forwardingEnabled) {
+            final OCSPReq request = parseAndValidateRequest(requestBytes).request();
+            if (request != null
+                    && unsupportedHashReason(request) == null
+                    && noCertificateMatchesAProfile(request)) {
+                target = forwardingUrl;
+            }
+        }
+        return target;
+    }
+
+    private boolean noCertificateMatchesAProfile(final OCSPReq request) {
+        boolean none = true;
+        try {
+            final DigestCalculatorProvider digests =
+                    new JcaDigestCalculatorProviderBuilder().build();
+            for (final Req req : request.getRequestList()) {
+                if (findMatchingProfile(req.getCertID(), digests).isPresent()) {
+                    none = false;
+                    break;
+                }
+            }
+        } catch (OCSPException | OperatorCreationException e) {
+            none = false;
+        }
+        return none;
+    }
+
+    private byte[] forward(final URI target, final byte[] requestBytes) {
+        byte[] response;
+        final long started = System.nanoTime();
+        try {
+            response = forwarder.forward(target, requestBytes);
+            final int status = new OCSPResp(response).getStatus();
+            if (LOGGER.isInfoEnabled()) {
+                LOGGER.info(
+                        "OCSP request matches no issuer profile, forwarded to {}: answered {}"
+                                + " in {} ms",
+                        target,
+                        OcspDiagnostics.responseStatusName(status),
+                        (System.nanoTime() - started) / 1_000_000);
+            }
+        } catch (IOException | RuntimeException e) {
+            if (LOGGER.isWarnEnabled()) {
+                LOGGER.warn(
+                        "OCSP response tryLater: forwarding to {} failed: {}",
+                        target,
+                        e.getMessage());
+            }
+            response = error(OCSPRespBuilder.TRY_LATER);
+        }
+        return response;
+    }
+
+    /**
+     * Replaces the forwarding settings.
+     *
+     * @throws IllegalArgumentException if the settings are missing, the URL is not an absolute
+     *     HTTP(S) URL, or forwarding is enabled without URL
+     */
+    public synchronized void setForwarding(final Forwarding settings) {
+        if (settings == null) {
+            throw new IllegalArgumentException("Forwarding settings are required");
+        }
+        final String url = settings.url() == null ? "" : settings.url().trim();
+        final URI uri = url.isEmpty() ? null : parseForwardingUrl(url);
+        if (settings.enabled() && uri == null) {
+            throw new IllegalArgumentException(
+                    "A forwarding URL is required when forwarding is enabled");
+        }
+        forwardingEnabled = settings.enabled();
+        forwardingUrl = uri;
+        if (LOGGER.isInfoEnabled()) {
+            LOGGER.info(
+                    "OCSP forwarding of requests without issuer profile {}{}",
+                    forwardingEnabled ? "enabled to " : "disabled",
+                    forwardingEnabled ? uri : "");
+        }
+    }
+
+    /** Returns the forwarding settings. */
+    public synchronized Forwarding forwarding() {
+        return new Forwarding(
+                forwardingEnabled, forwardingUrl == null ? null : forwardingUrl.toString());
+    }
+
+    private static URI parseForwardingUrl(final String url) {
+        final URI uri;
+        try {
+            uri = new URI(url);
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException("Invalid forwarding URL: " + url, e);
+        }
+        final String scheme =
+                uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        if (!("http".equals(scheme) || "https".equals(scheme))
+                || uri.getHost() == null
+                || uri.getFragment() != null) {
+            throw new IllegalArgumentException(
+                    "Forwarding URL must be an absolute http or https URL without fragment: "
+                            + url);
+        }
+        return uri;
+    }
+
+    private synchronized byte[] respondLocally(final byte[] requestBytes) {
         final RequestCheck check = parseAndValidateRequest(requestBytes);
         final byte[] response;
         if (check.request() == null) {

@@ -30,6 +30,20 @@ final class OcspDiagnostics {
         return serial.toString(16).toUpperCase(Locale.ROOT);
     }
 
+    /** Returns the RFC 6960 name of an OCSP response status, e.g. "unauthorized". */
+    /* default */ static String responseStatusName(final int status) {
+        final String[] names = {
+            "successful",
+            "malformedRequest",
+            "internalError",
+            "tryLater",
+            "status 4",
+            "sigRequired",
+            "unauthorized"
+        };
+        return status >= 0 && status < names.length ? names[status] : "status " + status;
+    }
+
     /** Returns a readable name of a CertID hash algorithm, or its OID when unknown. */
     /* default */ static String hashName(final ASN1ObjectIdentifier oid) {
         String name = oid.getId();
