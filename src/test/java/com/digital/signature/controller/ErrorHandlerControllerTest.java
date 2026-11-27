@@ -20,6 +20,7 @@ class ErrorHandlerControllerTest extends AbstractTest {
     @Autowired private MockMvc mockMvc;
 
     @MockitoBean private TimestampService timestampService;
+    @MockitoBean private com.digital.signature.service.OcspService ocspService;
 
     @Test
     void handleTimestampQuery_shouldReturnInternalServerError_whenServiceThrowsException()

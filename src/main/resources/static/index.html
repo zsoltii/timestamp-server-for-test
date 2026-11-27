@@ -61,19 +61,64 @@
     padding: .75rem 1rem;
     font-size: .9rem;
   }
+  .tabs {
+    display: flex;
+    gap: .25rem;
+    margin-top: 1.25rem;
+    border-bottom: 2px solid #8884;
+  }
+  .tabs button[role=tab] {
+    margin: 0 0 -2px;
+    padding: .55rem 1.1rem;
+    font: inherit;
+    font-weight: 600;
+    background: transparent;
+    border: 2px solid transparent;
+    border-bottom: 0;
+    border-radius: 8px 8px 0 0;
+    color: inherit;
+    opacity: .7;
+  }
+  .tabs button[role=tab]:hover { opacity: 1; }
+  .tabs button[role=tab][aria-selected=true] {
+    opacity: 1;
+    border-color: #8884;
+    border-bottom: 2px solid Canvas;
+    background: Canvas;
+  }
+  .tabs button[role=tab]:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
+  [role=tabpanel][hidden] { display: none; }
+  /* The OCSP tab can be widened with the mouse (bottom-right handle), never below its default width. */
+  #tab-ocsp {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 100%;
+    resize: horizontal;
+    overflow: auto;
+    padding-bottom: 1rem;
+  }
 </style>
 </head>
 <body>
 
 <h1>Timestamp Server &ndash; Admin interface</h1>
 <p class="note">
-  A simple interface for the <code>/api/timestamp/*</code> endpoints: check status, view the signing certificate,
-  and replace the signing key (PKCS12).
+  A simple interface for the <code>/api/timestamp/*</code> (RFC 3161 timestamp) and <code>/api/ocsp/*</code>
+  (OCSP test responder) endpoints. Use the tabs to switch between the two services.
 </p>
 <p class="warn">
   Warning: this server is intended for testing, and signing key replacement currently requires no authentication.
   Do not expose it publicly in a trusted environment.
 </p>
+
+<div class="tabs" role="tablist" aria-label="Admin sections">
+  <button type="button" role="tab" id="tab-btn-timestamp" aria-controls="tab-timestamp"
+          aria-selected="true" tabindex="0" data-tab="timestamp">Timestamp server</button>
+  <button type="button" role="tab" id="tab-btn-ocsp" aria-controls="tab-ocsp"
+          aria-selected="false" tabindex="-1" data-tab="ocsp">OCSP responder</button>
+</div>
+
+<div id="tab-timestamp" role="tabpanel" aria-labelledby="tab-btn-timestamp">
 
 <h2>Status</h2>
 <section>
@@ -176,8 +221,111 @@
   <div id="update-key-result" class="result"></div>
 </section>
 
+</div><!-- /tab-timestamp -->
+
+<div id="tab-ocsp" role="tabpanel" aria-labelledby="tab-btn-ocsp" hidden>
+
+<h2>OCSP test responder</h2>
+<section>
+  <p class="note">Test only. Profiles and settings are lost on restart. The client must use
+    <code>./api/ocsp/responder</code> and validate at the simulated time. Never upload production keys.</p>
+  <form id="ocsp-profile-form">
+    <label for="ocsp-id">Issuer profile ID (letters, digits, _ or -)</label>
+    <input id="ocsp-id" type="text" required pattern="[A-Za-z0-9_-]{1,64}" />
+    <label for="ocsp-issuer">Issuer CA certificate (PEM or DER)</label>
+    <input id="ocsp-issuer" type="file" required />
+    <label for="ocsp-file">Signer PKCS12</label>
+    <input id="ocsp-file" type="file" accept=".p12,.pfx" required />
+    <p>The signing algorithm is selected automatically from the key (RSA, RSA-PSS, EC, DSA, EdDSA or ML-DSA).</p>
+    <label for="ocsp-password">Keystore password</label>
+    <input id="ocsp-password" type="password" required />
+    <label for="ocsp-key-password">Key password (optional)</label>
+    <input id="ocsp-key-password" type="password" />
+    <label for="ocsp-alias">Key alias (required if there are multiple keys)</label>
+    <input id="ocsp-alias" type="text" />
+    <button type="submit">Save issuer profile</button>
+  </form>
+  <label for="ocsp-profile">Issuer profile</label>
+  <select id="ocsp-profile"></select>
+  <button type="button" id="ocsp-delete-profile">Delete profile</button>
+  <div id="ocsp-profiles-result" class="result" role="status" aria-live="polite"></div>
+  <h3>Custom responder URL paths</h3>
+  <p class="note">Besides <code>/api/ocsp/responder</code>, the responder also answers (GET and POST) on these
+    paths, to simulate the fixed OCSP URL of a certificate, e.g. <code>/ca/ocsp</code>.</p>
+  <form id="ocsp-path-form">
+    <label for="ocsp-path">Path (starts with /)</label>
+    <input type="text" id="ocsp-path" pattern="/[A-Za-z0-9._~\/\-]+" placeholder="/ca/ocsp" required />
+    <button type="submit">Add path</button>
+  </form>
+  <label for="ocsp-paths">Registered paths</label>
+  <select id="ocsp-paths"></select>
+  <button type="button" id="ocsp-delete-path">Remove path</button>
+  <div id="ocsp-paths-result" class="result" role="status" aria-live="polite"></div>
+  <form id="ocsp-times-form">
+    <label for="ocsp-start">thisUpdate / producedAt (ISO 8601, e.g. 2027-01-01T00:00:00Z; empty: now)</label>
+    <input type="text" id="ocsp-start" />
+    <label for="ocsp-end">nextUpdate (ISO 8601; empty: thisUpdate + 24 hours)</label>
+    <input type="text" id="ocsp-end" />
+    <button type="submit">Save OCSP times</button>
+    <button type="button" id="ocsp-clear-times">Use current time</button>
+  </form>
+  <div id="ocsp-times-result" class="result" role="status" aria-live="polite"></div>
+  <p class="note">Blacklist mode: every certificate of the selected issuer is <code>GOOD</code> unless listed
+    here. Add <code>REVOKED</code> serials as exceptions; deleting a status restores the <code>GOOD</code> default.
+    <code>UNKNOWN</code> answers the OCSP "unknown" status.</p>
+  <form id="ocsp-status-form">
+    <label for="ocsp-serial">Certificate serial number (hexadecimal)</label>
+    <input type="text" id="ocsp-serial" pattern="[0-9A-Fa-f]{1,40}" required />
+    <label for="ocsp-status">Status (default for unlisted serials: GOOD)</label>
+    <select id="ocsp-status"><option>REVOKED</option><option>UNKNOWN</option><option>GOOD</option></select>
+    <label for="ocsp-revoked">Revocation time (ISO 8601, required for REVOKED)</label>
+    <input type="text" id="ocsp-revoked" />
+    <label for="ocsp-reason">Revocation reason code (optional, 0-6 or 8-10)</label>
+    <input type="text" id="ocsp-reason" />
+    <button type="submit">Save status</button>
+    <button type="button" id="ocsp-delete-status">Delete status</button>
+  </form>
+  <div id="ocsp-status-result" class="result" role="status" aria-live="polite"></div>
+</section>
+
+</div><!-- /tab-ocsp -->
+
 <script>
   const API = "./api/timestamp";
+  const OCSP_API = "./api/ocsp";
+
+  const TAB_NAMES = ["timestamp", "ocsp"];
+
+  function selectTab(name, focus) {
+    if (!TAB_NAMES.includes(name)) name = TAB_NAMES[0];
+    for (const tab of TAB_NAMES) {
+      const button = document.getElementById("tab-btn-" + tab);
+      const selected = tab === name;
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+      document.getElementById("tab-" + tab).hidden = !selected;
+      if (selected && focus) button.focus();
+    }
+    if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
+  }
+
+  document.querySelectorAll("button[role=tab]").forEach((button) => {
+    button.addEventListener("click", () => selectTab(button.dataset.tab));
+    button.addEventListener("keydown", (event) => {
+      const index = TAB_NAMES.indexOf(button.dataset.tab);
+      let next = null;
+      if (event.key === "ArrowRight") next = (index + 1) % TAB_NAMES.length;
+      else if (event.key === "ArrowLeft") next = (index - 1 + TAB_NAMES.length) % TAB_NAMES.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = TAB_NAMES.length - 1;
+      if (next !== null) {
+        event.preventDefault();
+        selectTab(TAB_NAMES[next], true);
+      }
+    });
+  });
+  window.addEventListener("hashchange", () => selectTab(location.hash.slice(1)));
+  selectTab(location.hash.slice(1));
 
   function showResult(targetId, ok, text) {
     const el = document.getElementById(targetId);
@@ -285,6 +433,147 @@
   }
 
   loadCertificateInfo();
+
+  async function ocspRequest(path, options = {}) {
+    const res = await fetch(OCSP_API + path, options);
+    if (!res.ok) throw new Error(await problemMessage(res));
+    return res.status === 204 ? null : res.json();
+  }
+  async function loadOcspProfiles() {
+    try {
+      const profiles = await ocspRequest("/profiles");
+      const select = document.getElementById("ocsp-profile");
+      const selected = select.value;
+      select.replaceChildren(...profiles.map((profile) => {
+        const option = document.createElement("option");
+        option.value = profile.id;
+        option.textContent = profile.id + ": " + profile.issuer + " (signer: " + profile.signer + ")";
+        return option;
+      }));
+      if (profiles.some((profile) => profile.id === selected)) select.value = selected;
+      showResult("ocsp-profiles-result", true, profiles.length ? "Profiles loaded." : "No issuer profiles.");
+      await loadOcspStatuses();
+    } catch (e) { showResult("ocsp-profiles-result", false, String(e)); }
+  }
+  async function loadOcspStatuses() {
+    const id = document.getElementById("ocsp-profile").value;
+    try {
+      const statuses = id ? await ocspRequest("/profiles/" + encodeURIComponent(id) + "/statuses") : [];
+      showResult("ocsp-status-result", true, JSON.stringify(statuses, null, 2));
+    } catch (e) { showResult("ocsp-status-result", false, String(e)); }
+  }
+  document.getElementById("ocsp-profile").addEventListener("change", loadOcspStatuses);
+  document.getElementById("ocsp-profile-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData();
+    data.set("file", document.getElementById("ocsp-file").files[0]);
+    data.set("issuer", document.getElementById("ocsp-issuer").files[0]);
+    data.set("keystorePassword", document.getElementById("ocsp-password").value);
+    for (const [field, id] of [["keyPassword", "ocsp-key-password"], ["keyAlias", "ocsp-alias"]]) {
+      const value = document.getElementById(id).value;
+      if (value) data.set(field, value);
+    }
+    try {
+      await ocspRequest("/profiles/" + encodeURIComponent(document.getElementById("ocsp-id").value),
+        { method: "PUT", body: data });
+      event.target.reset();
+      await loadOcspProfiles();
+    } catch (e) { showResult("ocsp-profiles-result", false, String(e)); }
+  });
+  document.getElementById("ocsp-delete-profile").addEventListener("click", async () => {
+    const id = document.getElementById("ocsp-profile").value;
+    if (!id) {
+      showResult("ocsp-profiles-result", false, "Select an issuer profile first.");
+      return;
+    }
+    try {
+      await ocspRequest("/profiles/" + encodeURIComponent(id), { method: "DELETE" });
+      await loadOcspProfiles();
+    } catch (e) { showResult("ocsp-profiles-result", false, String(e)); }
+  });
+  async function loadOcspPaths() {
+    try {
+      const paths = await ocspRequest("/paths");
+      document.getElementById("ocsp-paths").replaceChildren(...paths.map((p) => new Option(p, p)));
+      showResult("ocsp-paths-result", true, paths.length
+        ? paths.map((p) => location.origin + p).join("\n") : "No custom path registered.");
+    } catch (e) { showResult("ocsp-paths-result", false, String(e)); }
+  }
+  document.getElementById("ocsp-path-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await ocspRequest("/paths", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: document.getElementById("ocsp-path").value }) });
+      await loadOcspPaths();
+    } catch (e) { showResult("ocsp-paths-result", false, String(e)); }
+  });
+  document.getElementById("ocsp-delete-path").addEventListener("click", async () => {
+    const path = document.getElementById("ocsp-paths").value;
+    if (!path) { showResult("ocsp-paths-result", false, "Select a path first."); return; }
+    try {
+      await ocspRequest("/paths?path=" + encodeURIComponent(path), { method: "DELETE" });
+      await loadOcspPaths();
+    } catch (e) { showResult("ocsp-paths-result", false, String(e)); }
+  });
+  async function loadOcspTimes() {
+    try {
+      const times = await ocspRequest("/times");
+      document.getElementById("ocsp-start").value = times.thisUpdate || "";
+      document.getElementById("ocsp-end").value = times.nextUpdate || "";
+      showResult("ocsp-times-result", true, JSON.stringify(times, null, 2));
+    } catch (e) { showResult("ocsp-times-result", false, String(e)); }
+  }
+  document.getElementById("ocsp-times-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await ocspRequest("/times", { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thisUpdate: document.getElementById("ocsp-start").value || null,
+          nextUpdate: document.getElementById("ocsp-end").value || null }) });
+      await loadOcspTimes();
+    } catch (e) { showResult("ocsp-times-result", false, String(e)); }
+  });
+  document.getElementById("ocsp-clear-times").addEventListener("click", async () => {
+    try { await ocspRequest("/times", { method: "DELETE" }); await loadOcspTimes(); }
+    catch (e) { showResult("ocsp-times-result", false, String(e)); }
+  });
+  function ocspStatusPath() {
+    const id = document.getElementById("ocsp-profile").value;
+    if (!id) return null;
+    return "/profiles/" + encodeURIComponent(id)
+      + "/statuses/" + encodeURIComponent(document.getElementById("ocsp-serial").value);
+  }
+  document.getElementById("ocsp-status-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const path = ocspStatusPath();
+    if (!path) {
+      showResult("ocsp-status-result", false, "Select an issuer profile first.");
+      return;
+    }
+    const reason = document.getElementById("ocsp-reason").value.trim();
+    if (reason && !/^(?:[0-6]|8|9|10)$/.test(reason)) {
+      showResult("ocsp-status-result", false, "Invalid revocation reason.");
+      return;
+    }
+    try {
+      await ocspRequest(path, { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: document.getElementById("ocsp-status").value,
+          revocationTime: document.getElementById("ocsp-revoked").value || null,
+          reason: reason ? Number(reason) : null }) });
+      await loadOcspStatuses();
+    } catch (e) { showResult("ocsp-status-result", false, String(e)); }
+  });
+  document.getElementById("ocsp-delete-status").addEventListener("click", async () => {
+    const path = ocspStatusPath();
+    if (!path) {
+      showResult("ocsp-status-result", false, "Select an issuer profile first.");
+      return;
+    }
+    try { await ocspRequest(path, { method: "DELETE" }); await loadOcspStatuses(); }
+    catch (e) { showResult("ocsp-status-result", false, String(e)); }
+  });
+  loadOcspProfiles();
+  loadOcspTimes();
+  loadOcspPaths();
 
   document.getElementById("custom-time-form").addEventListener("submit", async (event) => {
     event.preventDefault();

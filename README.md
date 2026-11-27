@@ -33,14 +33,17 @@ documents with a time **in the past or in the future**.
 
 - **RFC 3161 timestamp service**: answers standard `application/timestamp-query` requests with
   `application/timestamp-reply` responses, so any RFC 3161 client can use it.
+- **OCSP test responder**: signs RFC 6960 responses with separately uploaded issuer-authorized keys. It works as a
+  blacklist (every certificate is `GOOD` unless listed as revoked) and supports simulated response times.
 - **Time control**: a fixed time that is written into *every* timestamp (set once on the server, clients send plain
   requests), or a one-off custom time per request. Times can be in the past or in the future.
 - **Flexible time format**: `yyyy-MM-dd HH:mm:ssZ` with offsets (`+0200`), abbreviations (`CEST`) or region ids
   (`Europe/Budapest`); UTC when no zone is given.
 - **Signing key management**: self-signed key generated on startup, a PKCS12 keystore from the configuration, or a
   PKCS12 file uploaded at runtime without restarting the server.
-- **Web UI**: a single page for the status, the signing certificate, the fixed time, one-off `.tsr` files and the key
-  update.
+- **Web UI**: a single page with two tabs. *Timestamp server* holds the status, the signing certificate, the fixed
+  time, one-off `.tsr` files and the key update; *OCSP responder* holds the issuer profiles, simulated times and
+  certificate statuses.
 - **Other formats**: simple ISO 8601 and Unix epoch time endpoints.
 - **Operations**: Actuator health/metrics endpoints, Docker images (native and JVM), graceful shutdown, CORS enabled.
 
@@ -108,7 +111,12 @@ Open `http://localhost:8080/` for the [web UI](#web-ui).
 
 ## Web UI
 
-`http://localhost:8080/` serves a single static page (English labels) with these sections:
+`http://localhost:8080/` serves a single static page (English labels). Its settings are split into two tabs, so the
+timestamp server and the OCSP responder can be managed separately. The selected tab is kept in the URL fragment
+(`/#timestamp` or `/#ocsp`), so a tab can be bookmarked or opened directly; the tabs also work with the keyboard
+(arrow keys, `Home`, `End`).
+
+**Timestamp server** tab:
 
 | Section                                    | What it does                                                                                            |
 |--------------------------------------------|---------------------------------------------------------------------------------------------------------|
@@ -117,6 +125,9 @@ Open `http://localhost:8080/` for the [web UI](#web-ui).
 | **Fixed timestamp time**                   | Sets, shows and clears the [fixed time](#fixed-time-for-every-timestamp). The current value is loaded when the page opens. |
 | **Timestamp with a custom time**           | Pick a file (its SHA-256 is computed in the browser, the file is not uploaded) or paste a SHA-256 hash, optionally enter a time, and the `.tsr` response is downloaded. |
 | **Replace signing key**                    | Uploads a PKCS12 file and replaces the signing key (see [Signing key and certificate](#signing-key-and-certificate)). |
+
+**OCSP responder** tab: the [OCSP test responder](#ocsp-test-responder) section, with issuer profile upload and
+deletion, the simulated `thisUpdate`/`nextUpdate` times and the certificate statuses of the selected profile.
 
 The page uses relative API URLs, so it also works under a context path behind a reverse proxy.
 If the UI is published under `/timestamp`, open `/timestamp/` (with the trailing slash) and
@@ -162,6 +173,111 @@ No extra fields are needed, which is what makes it usable from any signing appli
 | 200    | A response was produced. It may still be a *rejection* (see `status` inside the response, e.g. unsupported hash algorithm). |
 | 415    | The `Content-Type` is not `application/timestamp-query`.                           |
 | 500    | The body is not a valid `TimeStampReq`.                                            |
+
+### OCSP test responder
+
+The OCSP responder is independent of the timestamp service. Configure one or more issuer profiles in the
+web UI or through `/api/ocsp`; each profile contains an issuer CA certificate and a PKCS12 key entry. The key
+must belong either to the issuer or to a certificate directly signed by that issuer with the OCSP signing EKU
+(`1.3.6.1.5.5.7.3.9`) and digital-signature key usage when present. The issuer must be a CA with certificate-signing
+key usage when present. The signing algorithm is selected automatically from the uploaded key: RSA, RSA-PSS, EC
+(ECDSA), DSA, Ed25519, Ed448 and ML-DSA-44/65/87 are supported. RSA-PSS key parameters are respected when present.
+The signer and issuer must be valid at the simulated `producedAt`. The signer and issuer certificates are included in responses; clients still need their
+own appropriate trust anchors and must validate the chain.
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/ocsp/responder` | POST | DER OCSP request and response, `application/ocsp-request` / `application/ocsp-response` |
+| `/api/ocsp/responder/{base64-request}` | GET | RFC 6960 URL-encoded Base64 DER request and DER response |
+| `/api/ocsp/profiles` | GET | List profiles and public certificate subjects |
+| `/api/ocsp/profiles/{id}` | PUT / DELETE | Upload or remove issuer profile and signer |
+| `/api/ocsp/profiles/{id}/statuses` | GET | List explicitly configured certificate statuses (the exceptions to the `GOOD` default) |
+| `/api/ocsp/profiles/{id}/statuses/{serial}` | PUT / DELETE | Set or remove a status by hexadecimal serial; removing it restores the `GOOD` default |
+| `/api/ocsp/times` | GET / PUT / DELETE | Read, replace or clear simulated times |
+| `/api/ocsp/paths` | GET / POST / DELETE | List, register (`{"path":"/ca/ocsp"}`) or remove (`?path=/ca/ocsp`) custom responder URL paths |
+
+Upload an issuer certificate (PEM or DER) and its authorized signer PKCS12. `keyAlias` is optional if the
+keystore contains exactly one private key; `keyPassword` defaults to the keystore password.
+
+```bash
+curl -X PUT http://localhost:8080/api/ocsp/profiles/issuer1 \
+  -F file=@ocsp-signer.p12 -F issuer=@issuer.pem \
+  -F keystorePassword=changeit
+
+curl -X PUT http://localhost:8080/api/ocsp/profiles/issuer1/statuses/AB12 \
+  -H 'Content-Type: application/json' -d '{"status":"GOOD"}'   # optional: GOOD is already the default
+curl -X PUT http://localhost:8080/api/ocsp/profiles/issuer1/statuses/AB13 \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"REVOKED","revocationTime":"2027-01-01T00:00:00Z","reason":1}'
+curl -X PUT http://localhost:8080/api/ocsp/times -H 'Content-Type: application/json' \
+  -d '{"thisUpdate":"2029-01-01T00:00:00Z","nextUpdate":"2029-01-02T00:00:00Z"}'
+openssl ocsp -issuer issuer.pem -cert subject.pem -reqout request.ocsp
+curl -X POST http://localhost:8080/api/ocsp/responder \
+  -H 'Content-Type: application/ocsp-request' --data-binary @request.ocsp -o response.ocsp
+openssl ocsp -respin response.ocsp -text -noverify
+```
+
+**Custom responder URL.** Issued certificates usually contain a fixed OCSP URL path in their Authority Information
+Access extension. To simulate it, register that path in the web UI (OCSP tab, *Custom responder URL paths*) or with
+the API; the responder then answers there exactly like on `/api/ocsp/responder` (POST with a DER body, and GET with the
+URL-encoded base64 request after the path), using the same profiles, statuses and times:
+
+```bash
+curl -X POST http://localhost:8080/api/ocsp/paths -H 'Content-Type: application/json' -d '{"path":"/ca/ocsp"}'
+openssl ocsp -issuer issuer.pem -cert subject.pem -url http://localhost:8080/ca/ocsp -noverify
+curl -X DELETE 'http://localhost:8080/api/ocsp/paths?path=/ca/ocsp'
+```
+
+A path starts with `/` and may contain letters, digits and `. _ ~ - /`. `/`, `/api/**`, `/actuator/**`, `/error`
+and `/index.html` are rejected with HTTP 400. Paths are kept in memory only and disappear at restart. Several paths can
+be registered at the same time.
+
+**Default status (blacklist).** The responder answers `GOOD` for every certificate serial of a configured issuer
+unless a different status is configured for it, so no status has to be set to get positive answers. You only list the
+exceptions: typically `REVOKED` serials (the blacklist). The example above needs no status at all for a
+valid certificate; only `AB13` is revoked and everything else of `issuer1` stays `GOOD`.
+
+Serial numbers are hexadecimal. A configured status is `REVOKED` (the usual blacklist entry), `UNKNOWN` (answers the
+OCSP "unknown" status, to test how a client handles it) or `GOOD` (explicit, same as the default). Deleting a
+configured status returns the serial to the `GOOD` default. `REVOKED` requires an ISO 8601 `revocationTime` and may
+include a numeric reason 0–6 or 8–10; it must not be later than `thisUpdate`. Requests for an unknown issuer or mixed
+issuers return an OCSP `unauthorized` response (the default `GOOD` applies only to configured issuers). Malformed
+requests and unsupported critical extensions or issuer hash algorithms
+return `malformedRequest`; operational failures return `internalError`. OCSP protocol errors still use HTTP 200.
+SHA-1, SHA-256 and SHA-512 issuer hashes and request nonces of 1–32 bytes are supported.
+
+If no fixed time is set, `thisUpdate` and `producedAt` use the actual time and `nextUpdate` is 24 hours later.
+Both times can be set independently; `producedAt` equals `thisUpdate`, `nextUpdate` must not precede it, and
+an omitted `nextUpdate` defaults to `thisUpdate` plus 24 hours. An explicit `nextUpdate` requires `thisUpdate`.
+Deleting `/times` restores the defaults. All profiles, statuses and times exist only in memory and disappear at
+restart.
+
+#### Multiple CAs
+
+One responder URL serves every configured CA, so the AIA OCSP URL of all test CAs can point to the same address.
+The CertID of the request (issuer name hash and issuer key hash, with SHA-1, SHA-256 or SHA-512) selects the profile,
+and serial numbers are looked up only among that profile's statuses: the same serial can have different statuses
+under different CAs (each CA has its own blacklist and its own `GOOD` default). A request may ask about several certificates of one CA; a request mixing CAs, or naming an
+unconfigured CA, receives `unauthorized`, because one response is signed by one CA's responder.
+
+A CA is identified by its subject name and public key, exactly as a CertID matches it:
+
+- A renewed CA certificate with the same name and key is the same CA. Uploading it under the same profile ID keeps
+  the statuses; uploading it under another profile ID is rejected with HTTP 400.
+- Two CAs with the same name but different keys (for example during a key rotation) are separate profiles.
+- Replacing a profile with a different CA clears its statuses.
+- A CA that signs its own responses must be renewed together with its PKCS12: if the keystore still holds the old
+  CA certificate, the upload is rejected and the previous profile keeps working.
+
+The simulated time is shared by all CAs. If a CA or its signer is not valid at `thisUpdate`, only requests for that
+CA receive `internalError`.
+
+The future timestamps do **not** change the client's clock or enforce AlgoPaper policy. To test 2027–2029,
+configure the verifier's validation time and trust chain accordingly; otherwise a future response may be rejected.
+The certificate's AIA OCSP URL or client/proxy configuration must direct requests to this responder. The example
+uses `-noverify` only to inspect a response; verify signatures and trust separately for meaningful tests.
+The server has no authentication and the administrative endpoints can replace signing keys and statuses.
+Use only isolated test environments and never upload production CA keys.
 
 ### `POST /api/timestamp/custom?time=<time>`
 
@@ -452,6 +568,18 @@ Logging uses the Spring Boot defaults (`INFO`). Each generated timestamp logs
 `Generating timestamp with time: <instant>`. To see every HTTP request (also unknown URLs and wrong methods) while
 diagnosing a client, start with `--logging.level.org.springframework.web.servlet.DispatcherServlet=DEBUG`.
 
+OCSP logging (`OcspService`, `OcspController`, `OcspCustomPathFilter`; levels set in `application.yml`):
+
+| Level | What is logged |
+|-------|----------------|
+| `WARN`  | Every non-successful OCSP answer with its reason: `malformedRequest` (empty body, not DER, wrong version, bad nonce, unsupported critical extension or hash), `unauthorized` (the requested CertID hashes compared with the expected hashes of every profile, e.g. "different issuer" or "same issuer name but different key"; or the two profiles of a mixed request), `internalError` (signer or issuer not valid at the simulated `thisUpdate`, revocation time after `thisUpdate`). Rejected admin calls with method, URL, HTTP status and reason (400 bad input, 415 wrong `Content-Type`), undecodable GET requests, wrong method on a custom path. A revoked status whose time is after the simulated `thisUpdate` is also warned when it is set. |
+| `INFO`  | Successful answers (profile, signer, `thisUpdate`/`nextUpdate`, status per serial, e.g. `12=GOOD (default)`) and configuration changes: profile stored (new, same CA with statuses kept, or different CA with statuses cleared) or deleted, status set or removed, times set, custom path added or removed. |
+| `DEBUG` | Every incoming OCSP request: method, path, size or content type and each CertID (serial, hash algorithm, issuer name and key hashes). |
+| `ERROR` | Unexpected failures while building a response, with stack trace. |
+
+Enable the request details with `--logging.level.com.digital.signature.service.OcspService=DEBUG` (and the same for
+`com.digital.signature.controller.OcspController` / `OcspCustomPathFilter`). No private key or password is logged.
+
 ## Error handling
 
 Errors are returned as RFC 7807 problem details (`application/problem+json`):
@@ -612,6 +740,8 @@ The Cucumber HTML report is written to `target/cucumber-reports/cucumber.html`.
 | Timestamp certificate changes at every restart                          | Expected with the generated key. Configure `timestamp.keystore-*` to keep one certificate.                   |
 | `415 Unsupported Media Type`                                            | Send `Content-Type: application/timestamp-query`.                                                            |
 | Response status is not `granted` although HTTP is `200`                 | The request was rejected as an RFC 3161 failure, e.g. an unsupported hash algorithm (allowed: SHA-1, SHA-256, SHA-512) or a different policy OID. |
+| OCSP answer is `unauthorized`                                           | Look for `OCSP response unauthorized:` in the log. It lists the requested issuer hashes and what each profile expects: "different issuer" means the uploaded issuer certificate is not the one that issued the checked certificate (e.g. root vs. intermediate); "same issuer name but different key" means another or re-keyed CA; "no OCSP issuer profile is configured" means nothing was uploaded (or the server restarted); "mixes issuers" means one request contains certificates of several CAs. |
+| OCSP answer is `malformedRequest` or `internalError`                    | The `WARN` line `OCSP response malformedRequest:` / `internalError` gives the reason, e.g. a signer not valid at the simulated time or a revocation time after `thisUpdate`. |
 | Server does not start after configuring a keystore                      | Wrong path, password or alias; the log shows the cause (`Failed to initialize TimestampService`).            |
 
 ## Contributing

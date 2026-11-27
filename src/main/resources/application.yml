@@ -28,3 +28,12 @@ timestamp:
   # keystore-password: keystorePassword
   # key-alias: timestampKey
   # key-password: keyPassword
+
+# Log levels. OCSP problems (malformedRequest, unauthorized, internalError, rejected admin calls)
+# are logged at WARN with the reason, successful OCSP answers and admin changes at INFO. Set the
+# OCSP loggers to DEBUG to also log every incoming request with its CertIDs.
+logging:
+  level:
+    com.digital.signature.service.OcspService: INFO
+    com.digital.signature.controller.OcspController: INFO
+    com.digital.signature.controller.OcspCustomPathFilter: INFO
